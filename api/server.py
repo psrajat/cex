@@ -7,6 +7,7 @@ URL encoding issues with dots and underscores.
 
 Endpoints:
   GET  /api/files                        list all ingested source files
+  GET  /api/file-content?file=<path>     raw source text of a file
   GET  /api/symbols?file=<path>          symbols in a file (all if omitted)
   GET  /api/symbol?id=<qname>            one symbol by qualified name
   GET  /api/explanation?id=<qname>       cached explanation text (null if none)
@@ -65,6 +66,12 @@ class ExplanationOut(BaseModel):
     id: str
     text: str | None
     cached: bool
+
+
+class FileContentOut(BaseModel):
+    file: str       # relative path (same as files.id)
+    content: str    # raw UTF-8 text
+    language: str   # e.g. 'python'
 
 
 # ── Shared state (initialised during lifespan) ────────────────────────────────
@@ -135,6 +142,43 @@ def list_files():
     _db.cur.execute("SELECT id, extension, language FROM files ORDER BY id")
     rows = _db.cur.fetchall()
     return [FileOut(id=r[0], extension=r[1], language=r[2]) for r in rows]
+
+
+@app.get("/api/file-content", response_model=FileContentOut)
+def get_file_content(file: str = Query(..., description="Relative file path")):
+    """Return the raw source text of an ingested file.
+
+    Reads directly from disk using the repo root stored in repo_info.
+    Path traversal is prevented by validating the resolved path stays
+    within the known repo root.
+    """
+    # Verify the file exists in the DB.
+    _db.cur.execute("SELECT language FROM files WHERE id = %s", (file,))
+    row = _db.cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"File not ingested: {file!r}")
+    language = row[0]
+
+    # Retrieve the stored repo root.
+    _db.cur.execute("SELECT id FROM repo_info LIMIT 1")
+    repo_row = _db.cur.fetchone()
+    if not repo_row:
+        raise HTTPException(status_code=503, detail="No repo ingested yet")
+    repo_root = Path(repo_row[0])
+
+    # Build and validate the absolute path — prevent directory traversal.
+    abs_path = (repo_root / file).resolve()
+    if not abs_path.is_relative_to(repo_root.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    if not abs_path.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found on disk: {file!r}")
+
+    try:
+        content = abs_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return FileContentOut(file=file, content=content, language=language)
 
 
 # ── Symbol endpoints ──────────────────────────────────────────────────────────
