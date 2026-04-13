@@ -25,5 +25,5 @@ batch_size = 32
 # When log_prompts is true, every prompt sent to the LLM during `cex explain`
 # is appended to <log_dir>/prompts.log in human-readable plain text.
 [logging]
-log_prompts = false
+log_prompts = true
 log_dir     = "logs"
