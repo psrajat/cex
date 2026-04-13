@@ -1,0 +1,42 @@
+// types.ts — TypeScript interfaces mirroring the FastAPI Pydantic models.
+
+export interface FileInfo {
+  id: string          // file path (e.g. "httpie/core.py")
+  extension: string   // ".py"
+  language: string    // "python"
+}
+
+export type SymbolType = 'function' | 'class' | 'method' | 'endpoint' | 'model' | string
+
+export interface Symbol {
+  id: string
+  file_id: string
+  type: SymbolType
+  name: string
+  qualified_name: string
+  signature: string
+  code_body: string
+  start_line: number
+  end_line: number
+  metadata: Record<string, unknown>
+}
+
+export interface ExplanationResult {
+  id: string
+  text: string | null
+  cached: boolean
+}
+
+export interface ParsedExplanation {
+  summary?: string
+  purpose?: string
+  howItWorks?: string
+  notable?: string
+  raw: string
+}
+
+export interface FileContent {
+  file: string      // relative path
+  content: string   // raw UTF-8 source text
+  language: string  // e.g. 'python'
+}

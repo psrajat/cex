@@ -1,0 +1,204 @@
+/* Global styles — VS Code dark theme palette + Tailwind v4 */
+
+@import "tailwindcss";
+
+/* ── VS Code colour palette as CSS custom properties ──────────────────────── */
+:root {
+  --bg-base:        #1e1e1e;
+  --bg-sidebar:     #252526;
+  --bg-panel:       #2d2d30;
+  --bg-hover:       #2a2d2e;
+  --bg-active:      #094771;
+  --border:         #3c3c3c;
+  --text:           #d4d4d4;
+  --text-dim:       #858585;
+  --text-muted:     #5a5a5a;
+  --accent:         #007acc;
+  --accent-hover:   #1a88d8;
+
+  /* Symbol type colours (match VS Code's semantic highlighting) */
+  --c-function:  #569cd6;
+  --c-class:     #4ec9b0;
+  --c-method:    #dcdcaa;
+  --c-endpoint:  #ce9178;
+  --c-model:     #c586c0;
+  --c-default:   #9cdcfe;
+}
+
+/* ── Base reset ─────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  background: var(--bg-base);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbars (WebKit) ────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #424242; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* ── Panel headers ──────────────────────────────────────────────────────────── */
+.panel-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* ── Symbol type badge ──────────────────────────────────────────────────────── */
+.type-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  flex-shrink: 0;
+}
+.type-badge.function  { color: var(--c-function);  background: rgba(86, 156, 214, 0.12); }
+.type-badge.class     { color: var(--c-class);     background: rgba(78, 201, 176, 0.12); }
+.type-badge.method    { color: var(--c-method);    background: rgba(220, 220, 170, 0.12); }
+.type-badge.endpoint  { color: var(--c-endpoint);  background: rgba(206, 145, 120, 0.12); }
+.type-badge.model     { color: var(--c-model);     background: rgba(197, 134, 192, 0.12); }
+.type-badge.default   { color: var(--c-default);   background: rgba(156, 220, 254, 0.12); }
+
+/* ── Symbol row in file tree ────────────────────────────────────────────────── */
+.symbol-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 24px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.1s;
+  user-select: none;
+}
+.symbol-row:hover   { background: var(--bg-hover); }
+.symbol-row.active  { background: var(--bg-active); }
+.symbol-row .name   { font-family: "Cascadia Code", "Fira Code", "Consolas", monospace; font-size: 12px; }
+
+/* ── File row ───────────────────────────────────────────────────────────────── */
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.1s;
+  user-select: none;
+  font-size: 12px;
+}
+.file-row:hover { background: var(--bg-hover); }
+.file-row.open  { color: #e0e0e0; }
+.chevron { transition: transform 0.15s; flex-shrink: 0; }
+.chevron.open { transform: rotate(90deg); }
+
+/* ── Explanation section cards ──────────────────────────────────────────────── */
+.section-card {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.section-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--bg-panel);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.section-card-body {
+  padding: 10px 12px;
+  line-height: 1.6;
+  background: var(--bg-sidebar);
+  font-size: 13px;
+}
+
+/* ── Streaming cursor blink ─────────────────────────────────────────────────── */
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.cursor-blink::after {
+  content: '▋';
+  animation: blink 1s step-start infinite;
+  color: var(--accent);
+  margin-left: 2px;
+}
+
+/* ── Loading spinner ────────────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Explorer editor loading skeleton ─────────────────────────────────────── */
+@keyframes shimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+.editor-skeleton {
+  position: absolute;
+  inset: 14px 14px auto 14px;
+  height: 62%;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  overflow: hidden;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.editor-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+.editor-skeleton-line {
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Search input ───────────────────────────────────────────────────────────── */
+.search-input {
+  width: 100%;
+  padding: 6px 10px 6px 32px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.search-input:focus { border-color: var(--accent); }
+.search-input::placeholder { color: var(--text-muted); }
