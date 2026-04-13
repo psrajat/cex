@@ -1,0 +1,258 @@
+"""api/server.py
+
+FastAPI server that exposes cex data over HTTP and serves the React UI.
+
+All symbol IDs (qualified names) are passed as query parameters to avoid
+URL encoding issues with dots and underscores.
+
+Endpoints:
+  GET  /api/files                        list all ingested source files
+  GET  /api/symbols?file=<path>          symbols in a file (all if omitted)
+  GET  /api/symbol?id=<qname>            one symbol by qualified name
+  GET  /api/explanation?id=<qname>       cached explanation text (null if none)
+  GET  /api/explain/stream?id=<qname>    stream explanation as SSE (generates if missing)
+  POST /api/explain?id=<qname>           generate explanation silently (bulk/background use)
+  GET  /api/callers?id=<qname>           symbols that call this one (CALLS in-edges)
+  GET  /api/callees?id=<qname>           symbols this one calls (CALLS out-edges)
+  GET  /api/parent?id=<qname>            enclosing class/function (NESTED_IN parent)
+  GET  /api/search?q=<query>             semantic + keyword search
+
+In production (after running `npm run build` in ui/), also serves the compiled
+React app from ui/dist/ and falls back to index.html for all unmatched routes.
+"""
+
+from collections.abc import Generator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from config import load_config
+from ingestion.database import DatabaseManager
+from ingestion.models import SymbolModel
+from llm.client import LLMClient
+from llm.logger import log_prompt
+from llm.prompts import build_explain_prompt
+from search.retriever import Retriever
+from explain.engine import ExplainEngine
+
+# ── Pydantic response models ──────────────────────────────────────────────────
+
+class SymbolOut(BaseModel):
+    id: str
+    file_id: str
+    type: str
+    name: str
+    qualified_name: str
+    signature: str
+    code_body: str
+    start_line: int
+    end_line: int
+    metadata: dict
+
+
+class FileOut(BaseModel):
+    id: str
+    extension: str
+    language: str
+
+
+class ExplanationOut(BaseModel):
+    id: str
+    text: str | None
+    cached: bool
+
+
+# ── Shared state (initialised during lifespan) ────────────────────────────────
+
+_db: DatabaseManager
+_client: LLMClient
+_retriever: Retriever
+_engine: ExplainEngine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Open DB + LLM connections once at startup; close them on shutdown."""
+    global _db, _client, _retriever, _engine
+    cfg = load_config()
+    _db = DatabaseManager(cfg.db)
+    _db.connect()
+    _client = LLMClient(cfg.llm, cfg.embed)
+    _retriever = Retriever(_db, _client)
+    _engine = ExplainEngine(_db, _client, _retriever, log_cfg=cfg.logging)
+    yield
+    _db.close()
+    _client.close()
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+app = FastAPI(title="cex API", version="1.0.0", lifespan=lifespan)
+
+# Allow the Vite dev server (port 5173) to call the API during development.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _sym(s: SymbolModel) -> SymbolOut:
+    return SymbolOut(
+        id=s.qualified_name,
+        file_id=s.file_path,
+        type=s.type,
+        name=s.name,
+        qualified_name=s.qualified_name,
+        signature=s.signature,
+        code_body=s.code_body,
+        start_line=s.start_line,
+        end_line=s.end_line,
+        metadata=s.metadata,
+    )
+
+
+def _require_symbol(symbol_id: str) -> SymbolModel:
+    sym = _db.fetch_symbol(symbol_id)
+    if not sym:
+        raise HTTPException(status_code=404, detail=f"Symbol not found: {symbol_id!r}")
+    return sym
+
+
+# ── File endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/api/files", response_model=list[FileOut])
+def list_files():
+    """Return all ingested source files."""
+    _db.cur.execute("SELECT id, extension, language FROM files ORDER BY id")
+    rows = _db.cur.fetchall()
+    return [FileOut(id=r[0], extension=r[1], language=r[2]) for r in rows]
+
+
+# ── Symbol endpoints ──────────────────────────────────────────────────────────
+
+@app.get("/api/symbols", response_model=list[SymbolOut])
+def list_symbols(file: str | None = Query(None, description="Filter by file path")):
+    """Return all symbols, optionally filtered to a single source file."""
+    syms = _db.fetch_symbols_by_file(file) if file else _db.fetch_all_symbols()
+    return [_sym(s) for s in syms]
+
+
+@app.get("/api/symbol", response_model=SymbolOut)
+def get_symbol(id: str = Query(..., description="Qualified name")):
+    return _sym(_require_symbol(id))
+
+
+@app.get("/api/callers", response_model=list[SymbolOut])
+def get_callers(id: str = Query(...)):
+    """Symbols that call this one (inbound CALLS edges)."""
+    return [_sym(s) for s in _db.fetch_related_symbols(id, "CALLS", direction="in")]
+
+
+@app.get("/api/callees", response_model=list[SymbolOut])
+def get_callees(id: str = Query(...)):
+    """Symbols this one calls (outbound CALLS edges)."""
+    return [_sym(s) for s in _db.fetch_related_symbols(id, "CALLS", direction="out")]
+
+
+@app.get("/api/parent", response_model=SymbolOut | None)
+def get_parent(id: str = Query(...)):
+    """Enclosing class or function (NESTED_IN parent), or null."""
+    parents = _db.fetch_related_symbols(id, "NESTED_IN", direction="in")
+    return _sym(parents[0]) if parents else None
+
+
+# ── Explanation endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/explanation", response_model=ExplanationOut)
+def get_explanation(id: str = Query(...)):
+    """Return the cached explanation for a symbol, or null if not yet built."""
+    _require_symbol(id)
+    text = _db.fetch_explanation(id)
+    return ExplanationOut(id=id, text=text, cached=text is not None)
+
+
+@app.get("/api/explain/stream")
+def stream_explanation(id: str = Query(...)):
+    """Stream an LLM explanation as Server-Sent Events.
+
+    If the explanation is already cached, the full text is sent in one event.
+    Otherwise the LLM is called and tokens are forwarded as they arrive.
+    The result is saved to the DB when the stream completes.
+    """
+    sym = _require_symbol(id)
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",  # tell Nginx not to buffer SSE
+    }
+
+    # Cache hit: send all at once.
+    cached = _db.fetch_explanation(id)
+    if cached:
+        def _cached_stream() -> Generator[str, None, None]:
+            yield f"data: {cached.replace(chr(10), '\\n')}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(_cached_stream(), media_type="text/event-stream", headers=headers)
+
+    # Cache miss: stream from LLM, collect, then persist.
+    cfg = load_config()
+    parent  = _retriever.get_parent(sym.qualified_name)
+    callers = _retriever.get_callers(sym.qualified_name)
+    callees = _retriever.get_callees(sym.qualified_name)
+    messages = build_explain_prompt(sym, parent, callers, callees)
+    log_prompt(messages, sym.qualified_name, cfg.logging)
+
+    def _sse_stream() -> Generator[str, None, None]:
+        parts: list[str] = []
+        for token in _client.stream_chat(messages):
+            parts.append(token)
+            # Escape newlines so each SSE "data:" line is one logical message.
+            escaped = token.replace("\n", "\\n")
+            yield f"data: {escaped}\n\n"
+        _db.save_explanation(sym.qualified_name, "".join(parts))
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_sse_stream(), media_type="text/event-stream", headers=headers)
+
+
+@app.post("/api/explain", response_model=ExplanationOut)
+def explain_symbol(id: str = Query(...)):
+    """Generate an explanation silently (no streaming) and cache it.
+
+    Use this for background pre-generation.  Prefer the /stream endpoint
+    for interactive use so the user sees output immediately.
+    """
+    sym = _require_symbol(id)
+    cached = _db.fetch_explanation(id)
+    if cached:
+        return ExplanationOut(id=id, text=cached, cached=True)
+    text = _engine._generate(sym, stream=False)
+    return ExplanationOut(id=id, text=text, cached=False)
+
+
+# ── Search ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/search", response_model=list[SymbolOut])
+def search(q: str = Query(..., min_length=1)):
+    """Semantic + keyword search.  Requires `cex embed` to have been run for
+    vector search; falls back to ILIKE keyword search if no embeddings exist."""
+    return [_sym(s) for s in _retriever.search(q, k=15)]
+
+
+# ── Static file serving (production build) ───────────────────────────────────
+# Mounted after all API routes so /api/* is never shadowed.
+
+_UI_DIST = Path(__file__).parent.parent / "ui" / "dist"
+
+if _UI_DIST.exists():
+    app.mount("/", StaticFiles(directory=str(_UI_DIST), html=True), name="ui")

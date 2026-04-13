@@ -11,6 +11,8 @@ share the same HTTP connection to the same base_url / api_key endpoint.
 """
 
 import json
+from collections.abc import Generator
+
 import httpx
 
 from config import EmbedConfig, LLMConfig
@@ -84,6 +86,36 @@ class LLMClient:
                     continue
         print()  # trailing newline after stream ends
         return "".join(parts)
+
+    def stream_chat(self, messages: list[dict]) -> Generator[str, None, None]:
+        """Yield raw token strings from a streaming completion without printing.
+
+        Unlike chat(stream=True) which echoes tokens to stdout for CLI use,
+        this generator is intended for callers that consume the tokens
+        programmatically (e.g. the FastAPI SSE endpoint).
+        """
+        payload = {
+            "model": self._llm.model,
+            "messages": messages,
+            "stream": True,
+            "max_tokens": self._llm.max_tokens,
+            "temperature": self._llm.temperature,
+        }
+        with self._http.stream("POST", "/chat/completions", json=payload) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                    delta = chunk["choices"][0]["delta"].get("content", "")
+                    if delta:
+                        yield delta
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
 
     # ── Embeddings ────────────────────────────────────────────────────────────
 

@@ -56,6 +56,23 @@ def main():
         help="File path, qualified name (e.g. 'Job.run'), or natural-language query"
     )
 
+    # server: start the FastAPI + Vite UI server
+    server_parser = subparsers.add_parser(
+        "server", help="Start the cex API server (serves the React UI in production)"
+    )
+    server_parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="Interface to bind (default: 127.0.0.1)"
+    )
+    server_parser.add_argument(
+        "--port", type=int, default=8000,
+        help="Port to listen on (default: 8000)"
+    )
+    server_parser.add_argument(
+        "--reload", action="store_true",
+        help="Enable auto-reload on code changes (development mode)"
+    )
+
     args = parser.parse_args()
     config: AppConfig = load_config()
 
@@ -122,6 +139,15 @@ def main():
         finally:
             db.close()
             client.close()
+
+    elif args.command == "server":
+        import uvicorn
+        uvicorn.run(
+            "api.server:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+        )
 
     else:
         parser.print_help()
