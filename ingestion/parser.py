@@ -80,6 +80,12 @@ def _py_classify(node: Node, src: str) -> tuple[str, dict]:
 
 
 def _py_get_callee(node: Node, src: str) -> str | None:
+    """Extract the called function name from a call expression node.
+
+    Handles both simple calls (``foo()``) and attribute/method calls
+    (``obj.method()``).  Returns just the leaf name — qualified name
+    resolution happens later in the CALLS walk using qname_map.
+    """
     fn = node.child_by_field_name("function")
     if fn and fn.type == "identifier":
         return src[fn.start_byte : fn.end_byte]
@@ -90,6 +96,14 @@ def _py_get_callee(node: Node, src: str) -> str | None:
 
 
 def _py_parse_import(node: Node, src: str) -> tuple[str, list[str]] | None:
+    """Extract (module_name, [imported_names]) from an import AST node.
+
+    ``import os``            → ('os', [])
+    ``import os as o``       → ('os', [])
+    ``from os.path import join, exists`` → ('os.path', ['join', 'exists'])
+    ``from pkg import *``    → ('pkg', ['*'])
+    Returns None if the node cannot be parsed.
+    """
     if node.type == "import_statement":
         for c in node.children:
             if c.type in ("dotted_name", "identifier"):
