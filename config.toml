@@ -7,7 +7,7 @@ password = "postgres"
 # Chat / completion model settings.
 # base_url must point to an OpenAI-compatible /v1 endpoint.
 [llm]
-base_url    = "http://192.168.1.2:11434/v1"
+base_url    = "http://192.168.1.2:8090/v1"
 model       = "gemma4-26b:IQ4_NL"
 api_key     = "ollama"
 max_tokens  = 2048
