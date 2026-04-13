@@ -48,12 +48,12 @@ def build_explain_prompt(
 
     if callers:
         lines += ["", "--- CALLED BY ---"]
-        for c in callers[:5]:
+        for c in callers:#[:5]:
             lines.append(f"{c.qualified_name}: {c.signature}")
 
     if callees:
         lines += ["", "--- CALLS ---"]
-        for c in callees[:5]:
+        for c in callees:#[:5]:
             lines.append(f"{c.qualified_name}: {c.signature}")
 
     return [
