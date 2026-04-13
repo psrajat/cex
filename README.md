@@ -34,7 +34,10 @@ uv run python main.py ingest /path/to/your/repo
 # 5. Generate embeddings (requires embed model to be running)
 uv run python main.py embed
 
-# 6. Explain something
+# 6. Pre-build explanations (runs in background, no output shown)
+uv run python main.py build
+
+# 7. Query an explanation
 uv run python main.py explain "Job.run"
 uv run python main.py explain schedule/__init__.py
 uv run python main.py explain "how does the scheduler handle time zones"
@@ -77,7 +80,8 @@ batch_size = 32
 | `reset` | Drop and recreate the database (deletes all data) |
 | `ingest <repo_dir>` | Parse a repository and populate the database |
 | `embed [--force]` | Generate vector embeddings for all symbols |
-| `explain <target> [--all] [--fresh]` | Explain a symbol, file, or query |
+| `build [target] [--fresh]` | Pre-generate and cache LLM explanations silently |
+| `explain <target>` | Show explanation for a symbol (generates on demand if not cached) |
 
 ### `ingest` options
 
@@ -87,11 +91,14 @@ batch_size = 32
 
 - `--force` — re-embed all symbols even if embeddings already exist
 
+### `build` options
+
+- `target` — file path, qualified name (`Job.run`), or free-text query (omit to build all symbols)
+- `--fresh` — regenerate even if an explanation is already cached
+
 ### `explain` options
 
-- `target` — file path, qualified name (`Job.run`), or natural-language query
-- `--all` — generate and cache explanations for every symbol in the DB
-- `--fresh` — ignore the cache and regenerate from the LLM
+- `target` — file path, qualified name, or natural-language query; generates on-demand if not in cache
 
 ## Architecture
 
@@ -134,12 +141,18 @@ Test files and test directories are excluded from indexing.
 
 All primary keys are human-readable TEXT — no UUIDs.
 
-### Explain pipeline (`cex explain`)
+### Explain pipeline (`cex build` / `cex explain`)
 
-1. **Resolve target** — file path → top-level symbols; exact qname → one symbol; free text → vector/keyword search
-2. **Context** — fetch parent, callers, callees (signatures only, to stay within context limits)
-3. **LLM** — structured prompt returns SUMMARY / PURPOSE / HOW IT WORKS / NOTABLE sections
-4. **Cache** — explanation persisted in `explanations` table; subsequent calls skip the LLM
+**`cex build`** (offline, batch):
+1. **Resolve target** — file path → top-level symbols; exact qname → one symbol; free text → semantic/keyword search
+2. **Context** — fetch parent, callers, callees (signatures only)
+3. **LLM** — structured prompt, output suppressed; only progress printed
+4. **Cache** — result written to `explanations` table
+
+**`cex explain <target>`** (interactive):
+1. Resolve target (same logic)
+2. DB lookup — if cached, stream text to stdout immediately
+3. If not cached — call LLM with streaming, cache result, display
 
 ## Docs
 

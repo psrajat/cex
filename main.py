@@ -33,28 +33,33 @@ def main():
         help="Re-embed all symbols even if already embedded"
     )
 
-    # explain: explain a symbol, file, or query using the local LLM
-    explain_parser = subparsers.add_parser(
-        "explain", help="Explain code using the local LLM"
+    # build: pre-generate and cache LLM explanations (no output displayed)
+    # Run this once after ingestion to warm the explanation cache.
+    build_parser = subparsers.add_parser(
+        "build", help="Pre-generate and cache LLM explanations"
     )
-    explain_parser.add_argument(
+    build_parser.add_argument(
         "target", nargs="?",
-        help="File path, qualified name (e.g. 'Job.run'), or natural-language query"
+        help="File path, qualified name, or query (omit to build all symbols)"
     )
-    explain_parser.add_argument(
-        "--all", action="store_true",
-        help="Explain every symbol in the DB and cache results"
-    )
-    explain_parser.add_argument(
+    build_parser.add_argument(
         "--fresh", action="store_true",
-        help="Ignore cached explanations and regenerate"
+        help="Regenerate even if an explanation is already cached"
+    )
+
+    # explain: query the explanation for a symbol (generates on-demand if not cached)
+    explain_parser = subparsers.add_parser(
+        "explain", help="Show the explanation for a symbol (generates if not cached)"
+    )
+    explain_parser.add_argument(
+        "target",
+        help="File path, qualified name (e.g. 'Job.run'), or natural-language query"
     )
 
     args = parser.parse_args()
     config: AppConfig = load_config()
 
     if args.command == "setup":
-        # Pass embed_dim so the VECTOR column is created with the right dimension.
         setup_database(config.db, embed_dim=config.embed.dim)
 
     elif args.command == "reset":
@@ -67,8 +72,7 @@ def main():
             user=args.db_user or config.db.user,
             password=args.db_password or config.db.password,
         )
-        engine = IngestionEngine(args.repo_dir, db_config)
-        engine.run()
+        IngestionEngine(args.repo_dir, db_config).run()
 
     elif args.command == "embed":
         from ingestion.database import DatabaseManager
@@ -77,10 +81,28 @@ def main():
 
         db = DatabaseManager(config.db)
         db.connect()
-        # LLMClient now takes separate llm and embed configs.
         client = LLMClient(config.llm, config.embed)
         try:
             EmbeddingEngine(db, client, config.embed).run(force=args.force)
+        finally:
+            db.close()
+            client.close()
+
+    elif args.command == "build":
+        from ingestion.database import DatabaseManager
+        from llm.client import LLMClient
+        from search.retriever import Retriever
+        from explain.engine import ExplainEngine
+
+        db = DatabaseManager(config.db)
+        db.connect()
+        client = LLMClient(config.llm, config.embed)
+        engine = ExplainEngine(db, client, Retriever(db, client), log_cfg=config.logging)
+        try:
+            if args.target:
+                engine.build(args.target, fresh=args.fresh)
+            else:
+                engine.build_all(fresh=args.fresh)
         finally:
             db.close()
             client.close()
@@ -94,15 +116,9 @@ def main():
         db = DatabaseManager(config.db)
         db.connect()
         client = LLMClient(config.llm, config.embed)
-        retriever = Retriever(db, client)
-        engine = ExplainEngine(db, client, retriever)
+        engine = ExplainEngine(db, client, Retriever(db, client), log_cfg=config.logging)
         try:
-            if args.all:
-                engine.explain_all(fresh=args.fresh)
-            elif args.target:
-                engine.explain(args.target, fresh=args.fresh)
-            else:
-                explain_parser.print_help()
+            engine.query(args.target)
         finally:
             db.close()
             client.close()

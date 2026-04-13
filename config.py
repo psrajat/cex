@@ -44,11 +44,27 @@ class EmbedConfig:
 
 
 @dataclass
+class LoggingConfig:
+    """Controls optional prompt logging for debugging and auditing LLM calls.
+
+    When ``log_prompts`` is True, the full message list (system + user) sent to
+    the LLM for every ``explain`` call is appended to ``log_dir/prompts.log``.
+    The log directory is created automatically on first write.
+
+    The log file is plain text — human-readable, not JSON — so it can also be
+    tailed in a terminal during a bulk ``explain --all`` run.
+    """
+    log_prompts: bool = False
+    log_dir:     str  = "logs"
+
+
+@dataclass
 class AppConfig:
     """Top-level config container.  Callers receive this from load_config()."""
-    db:    DBConfig
-    llm:   LLMConfig   = field(default_factory=LLMConfig)
-    embed: EmbedConfig = field(default_factory=EmbedConfig)
+    db:      DBConfig
+    llm:     LLMConfig     = field(default_factory=LLMConfig)
+    embed:   EmbedConfig   = field(default_factory=EmbedConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 
 def load_config(config_path: str = "config.toml") -> AppConfig:
@@ -88,4 +104,10 @@ def load_config(config_path: str = "config.toml") -> AppConfig:
         batch_size=embed_data.get("batch_size", EmbedConfig.batch_size),
     )
 
-    return AppConfig(db=db, llm=llm, embed=embed)
+    log_data = data.get("logging", {})
+    logging = LoggingConfig(
+        log_prompts=log_data.get("log_prompts", LoggingConfig.log_prompts),
+        log_dir=log_data.get("log_dir",         LoggingConfig.log_dir),
+    )
+
+    return AppConfig(db=db, llm=llm, embed=embed, logging=logging)
