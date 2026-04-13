@@ -79,11 +79,28 @@ _DDL: list[str] = [
         module  TEXT NOT NULL,
         names   TEXT[] DEFAULT '{}'
     )""",
+
+    # explanations: cached LLM-generated explanation for each symbol.
+    # id = symbols.id (qualified_name).  Decoupled from symbols table so
+    # schema migrations on symbols don't cascade-delete expensive LLM output.
+    """CREATE TABLE IF NOT EXISTS explanations (
+        id           TEXT PRIMARY KEY,  -- = symbols.id (qualified_name)
+        text         TEXT NOT NULL,
+        generated_at TIMESTAMPTZ DEFAULT now()
+    )""",
 ]
 
 
-def setup_database(db_config) -> None:
-    """Create the cex database (if absent) and apply the schema idempotently."""
+def setup_database(db_config, embed_dim: int = 768) -> None:
+    """Create the cex database (if absent) and apply the schema idempotently.
+
+    ``embed_dim`` must match the output dimension of the configured embedding
+    model (see ``[embed] dim`` in config.toml).  It is used to create the
+    ``VECTOR(N)`` column on the symbols table and the HNSW index.
+
+    All DDL statements are idempotent — safe to run on an already-initialised
+    database (e.g. after a config change that doesn't require a full reset).
+    """
     conn_kwargs = dict(
         host=db_config.host, user=db_config.user, password=db_config.password
     )
@@ -113,10 +130,22 @@ def setup_database(db_config) -> None:
             for stmt in _DDL:
                 cur.execute(stmt)
 
+            # Add the embedding vector column and its HNSW index.
+            # Done here (not in _DDL) because the dimension comes from config,
+            # not the static schema.  Both statements are idempotent.
+            cur.execute(
+                f"ALTER TABLE symbols "
+                f"ADD COLUMN IF NOT EXISTS embedding VECTOR({embed_dim})"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS symbols_embedding_hnsw_idx "
+                "ON symbols USING hnsw (embedding vector_cosine_ops)"
+            )
+
     print("Database setup complete.")
 
 
-def reset_database(db_config) -> None:
+def reset_database(db_config, embed_dim: int = 768) -> None:
     """Drop and recreate the cex database, applying the full schema fresh.
 
     Use this before re-ingesting a repository from scratch.
@@ -142,10 +171,11 @@ def reset_database(db_config) -> None:
             print(f"Database '{db_config.name}' recreated.")
 
     # Re-apply the full schema to the fresh database.
-    setup_database(db_config)
+    setup_database(db_config, embed_dim=embed_dim)
 
 
 if __name__ == "__main__":
     from config import load_config
 
-    setup_database(load_config())
+    cfg = load_config()
+    setup_database(cfg.db, embed_dim=cfg.embed.dim)
