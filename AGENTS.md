@@ -1,18 +1,29 @@
-# Repository Conventions (cex)
+# cex - Code EXplainer
 
-## Execution & Verification
-- **Build/Test/Lint:** No explicit build/test/lint commands were found in the initial scan. Please confirm the correct commands for running tests, linting, or building the project.
-- **Local Testing:** To verify changes, the primary method is running the application locally and manually testing functionality (e.g., opening `index.html` in a browser).
+## Project Stack
+- **Language:** Python 3.12+
+- **Environment:** Managed via [uv](https://github.com)
+- **Framework:** [Psycopg2](https://pypi.org/project/psycopg2/) for DB access
+- **Testing:** [pytest](https://pytest.org) with `pytest-asyncio`
 
-## Architecture & Structure
-- **Project Type:** Static website built with plain HTML, CSS, and JavaScript.
-- **Data Storage:** Journal entries are stored locally using the browser's `localStorage` in `script.js`. There is no backend/database involved.
-- **Entry Point:** `index.html` is the main entry point.
+## Critical Commands
+- **Install Dependencies:** `uv sync`
+- **Run Tests:** `uv run pytest`
+- **Linting:** `uv run ruff check .`
+- **Type Checking:** `uv run pyright`
 
-## Workflow Gotchas
-- **File Dependency:** `script.js` relies on `localStorage` for persistence.
-- **Styling:** All styling is contained in `style.css`.
+## Python Best Practices
+- Use **Type Hints** for all function signatures (PEP 484).
+- Prefer **f-strings** over `.format()` or `%`.
+- Use **async/await** for all I/O bound operations.
+- Catch specific exceptions; never use a bare `except: Exception`.
 
-## Commands to Know
-- To run/test: Open `index.html` in a browser.
-- To modify: Edit `index.html`, `style.css`, or `script.js`.
+## Testing Guidelines
+- Write all tests in the `tests/` directory following the `test_*.py` pattern.
+- Every new feature must include a corresponding unit test.
+- Use `unittest.mock` for any network-dependent services.
+
+## Boundaries & Constraints
+- **Never** modify files in the `scripts/legacy/` folder.
+- **Do not** add new dependencies without explicit permission.
+- **Never** include secrets or hardcoded API keys in any generated code.

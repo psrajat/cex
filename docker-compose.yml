@@ -1,0 +1,25 @@
+services:
+  db:
+    # pgvector/pgvector extends postgres:17 with the `vector` extension.
+    # The extension is mandatory for AUL semantic search (added in Phase 3).
+    image: pgvector/pgvector:pg17
+    container_name: cex-db
+    restart: unless-stopped   # restart on crash or host reboot
+    ports:
+      - "5432:5432"           # change to "HOST_PORT:5432" to avoid conflicts
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cex        # pre-creates the cex database on first boot
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # persist data across container restarts
+    healthcheck:
+      # cex setup / ingest will fail until this check passes.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cex"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s       # give postgres time to initialise before first probe
+
+volumes:
+  pgdata:  # named volume — survives `docker compose down` (use -v to delete)

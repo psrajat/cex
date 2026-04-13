@@ -1,0 +1,5 @@
+[database]
+host = "localhost"
+name = "cex"
+user = "postgres"
+password = "postgres"
