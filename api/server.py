@@ -40,6 +40,9 @@ from llm.logger import log_prompt
 from llm.prompts import build_explain_prompt
 from search.retriever import Retriever
 from explain.engine import ExplainEngine
+from skeleton.engine import SkeletonEngine
+from recommend.engine import RecommendationEngine
+from patch.engine import PatchEngine
 
 # ── Pydantic response models ──────────────────────────────────────────────────
 
@@ -74,24 +77,56 @@ class FileContentOut(BaseModel):
     language: str   # e.g. 'python'
 
 
+class RecommendationOut(BaseModel):
+    id: str
+    title: str
+    level: str
+    description: str
+    file: str
+    files: list[str]
+    rationale: str | None
+    risks: list[str]
+
+
+class PatchHunkOut(BaseModel):
+    hunk_header: str
+    explanation: str
+    affected_lines_old: list[int]
+    affected_lines_new: list[int]
+
+
+class PatchOut(BaseModel):
+    recommendation_id: str
+    files: list[str]
+    diff_text: str
+    explained_diff_text: str
+    hunks: list[PatchHunkOut]
+
+
 # ── Shared state (initialised during lifespan) ────────────────────────────────
 
 _db: DatabaseManager
 _client: LLMClient
 _retriever: Retriever
 _engine: ExplainEngine
+_skeleton_engine: SkeletonEngine
+_recommendation_engine: RecommendationEngine
+_patch_engine: PatchEngine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Open DB + LLM connections once at startup; close them on shutdown."""
-    global _db, _client, _retriever, _engine
+    global _db, _client, _retriever, _engine, _skeleton_engine, _recommendation_engine, _patch_engine
     cfg = load_config()
     _db = DatabaseManager(cfg.db)
     _db.connect()
     _client = LLMClient(cfg.llm, cfg.embed)
     _retriever = Retriever(_db, _client)
     _engine = ExplainEngine(_db, _client, _retriever, log_cfg=cfg.logging)
+    _skeleton_engine = SkeletonEngine(_db)
+    _recommendation_engine = RecommendationEngine(_client, _skeleton_engine)
+    _patch_engine = PatchEngine(_client, _db, _recommendation_engine)
     yield
     _db.close()
     _client.close()
@@ -291,6 +326,58 @@ def search(q: str = Query(..., min_length=1)):
     """Semantic + keyword search.  Requires `cex embed` to have been run for
     vector search; falls back to ILIKE keyword search if no embeddings exist."""
     return [_sym(s) for s in _retriever.search(q, k=15)]
+
+
+# ── Recommendation endpoints ──────────────────────────────────────────────────
+
+@app.get("/api/recommendations", response_model=list[RecommendationOut])
+def list_recommendations():
+    """Return the list of validated PR recommendations."""
+    recs = _recommendation_engine.load()
+    return [RecommendationOut(**r.to_dict()) for r in recs]
+
+
+@app.post("/api/recommendations/refresh")
+def refresh_recommendations():
+    """Force rebuild the skeleton and regenerate all recommendations."""
+    _skeleton_engine.build(force=True)
+    recs = _recommendation_engine.generate(force=True)
+    return {
+        "ok": True,
+        "count": len(recs),
+        "skeleton_path": str(_skeleton_engine.output_path),
+        "recommendations_path": str(_recommendation_engine.output_path)
+    }
+
+
+@app.get("/api/recommendations/patch", response_model=PatchOut)
+def get_recommendation_patch(id: str = Query(..., description="Recommendation ID")):
+    """Generate or retrieve the explained diff for a recommendation."""
+    try:
+        result = _patch_engine.generate(id)
+        return PatchOut(
+            recommendation_id=result.recommendation_id,
+            files=result.files,
+            diff_text=result.diff_text,
+            explained_diff_text=result.explained_diff_text,
+            hunks=[
+                PatchHunkOut(
+                    hunk_header=h.hunk_header,
+                    explanation=h.explanation,
+                    affected_lines_old=h.affected_lines_old,
+                    affected_lines_new=h.affected_lines_new
+                )
+                for h in result.hunks
+            ]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/api/skeleton")
+def get_skeleton():
+    """Return the raw markdown skeleton."""
+    return {"skeleton": _skeleton_engine.load()}
 
 
 # ── Static file serving (production build) ───────────────────────────────────

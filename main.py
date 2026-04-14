@@ -73,6 +73,37 @@ def main():
         help="Enable auto-reload on code changes (development mode)"
     )
 
+    # skeleton: generate a repository skeleton for the LLM
+    skeleton_parser = subparsers.add_parser(
+        "skeleton", help="Generate a repository architectural summary"
+    )
+    skeleton_parser.add_argument(
+        "--force", action="store_true",
+        help="Rebuild the skeleton even if it already exists"
+    )
+
+    # recommend: generate exercise recommendations from the skeleton
+    recommend_parser = subparsers.add_parser(
+        "recommend", help="Generate exercise recommendations from the skeleton"
+    )
+    recommend_parser.add_argument(
+        "--fresh", action="store_true",
+        help="Regenerate even if recommendations already exist"
+    )
+
+    # patch: generate a diff and explanation for a recommendation
+    patch_parser = subparsers.add_parser(
+        "patch", help="Generate a code patch for a recommendation"
+    )
+    patch_parser.add_argument(
+        "recommendation_id",
+        help="ID of the recommendation to implement"
+    )
+    patch_parser.add_argument(
+        "--fresh", action="store_true",
+        help="Regenerate even if the patch is already cached"
+    )
+
     args = parser.parse_args()
     config: AppConfig = load_config()
 
@@ -148,6 +179,61 @@ def main():
             port=args.port,
             reload=args.reload,
         )
+
+    elif args.command == "skeleton":
+        from ingestion.database import DatabaseManager
+        from skeleton.engine import SkeletonEngine
+
+        db = DatabaseManager(config.db)
+        db.connect()
+        try:
+            engine = SkeletonEngine(db)
+            path = engine.build(force=args.force)
+            print(f"Skeleton generated at: {path}")
+        finally:
+            db.close()
+
+    elif args.command == "recommend":
+        from ingestion.database import DatabaseManager
+        from llm.client import LLMClient
+        from skeleton.engine import SkeletonEngine
+        from recommend.engine import RecommendationEngine
+
+        db = DatabaseManager(config.db)
+        db.connect()
+        client = LLMClient(config.llm, config.embed)
+        try:
+            skeleton_engine = SkeletonEngine(db)
+            engine = RecommendationEngine(client, skeleton_engine)
+            recs = engine.generate(force=args.fresh)
+            print(f"Generated {len(recs)} recommendations.")
+            for r in recs:
+                print(f"- [{r.level}] {r.title} ({r.file})")
+        finally:
+            db.close()
+            client.close()
+
+    elif args.command == "patch":
+        from ingestion.database import DatabaseManager
+        from llm.client import LLMClient
+        from skeleton.engine import SkeletonEngine
+        from recommend.engine import RecommendationEngine
+        from patch.engine import PatchEngine
+
+        db = DatabaseManager(config.db)
+        db.connect()
+        client = LLMClient(config.llm, config.embed)
+        try:
+            skeleton_engine = SkeletonEngine(db)
+            recommend_engine = RecommendationEngine(client, skeleton_engine)
+            engine = PatchEngine(client, db, recommend_engine)
+            result = engine.generate(args.recommendation_id, force=args.fresh)
+            print(f"Patch generated for: {args.recommendation_id}")
+            print("\nExplained Diff:\n")
+            print(result.explained_diff_text)
+        finally:
+            db.close()
+            client.close()
 
     else:
         parser.print_help()

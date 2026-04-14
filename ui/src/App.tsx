@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchFiles, fetchExplanation, searchSymbols, streamExplanation } from './api'
-import type { FileInfo, ParsedExplanation, Symbol } from './types'
+import type { FileInfo, ParsedExplanation, Symbol, PatchResult } from './types'
 import FileTree from './components/FileTree'
 import CodePanel from './components/CodePanel'
 import ExplorerPanel from './components/ExplorerPanel'
 import ExplanationPanel from './components/ExplanationPanel'
+import ExercisePanel from './components/ExercisePanel'
 import SearchBar from './components/SearchBar'
 
-type Tab = 'explorer' | 'symbol'
+type Tab = 'explorer' | 'symbol' | 'exercise'
 
 export default function App() {
   // ── Data state ─────────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ export default function App() {
   const [selectedSymbol, setSelectedSymbol] = useState<Symbol | null>(null)
   const [searchResults, setSearchResults] = useState<Symbol[] | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('explorer')
+  const [selectedPatch, setSelectedPatch] = useState<PatchResult | null>(null)
 
   // ── Explanation state ──────────────────────────────────────────────────────
   const [explanation, setExplanation] = useState<ParsedExplanation | null>(null)
@@ -34,6 +36,7 @@ export default function App() {
   // is not the right file; otherwise just scroll in Explorer.
   function handleSelectSymbol(sym: Symbol) {
     setSelectedSymbol(sym)
+    setSelectedPatch(null)
     // If a different file is open in Explorer, switch to Symbol tab so the user
     // immediately sees the isolated code body without a full file reload.
     if (activeTab === 'explorer' && selectedFile?.id !== sym.file_id) {
@@ -44,8 +47,19 @@ export default function App() {
   // ── File selection from tree — auto-switch to Explorer tab ─────────────────
   function handleSelectFile(file: FileInfo) {
     setSelectedFile(file)
+    setSelectedPatch(null)
     setFileLoadKey((k) => k + 1)   // always increment so clicking the same file re-fetches
     setActiveTab('explorer')
+  }
+
+  function handleSelectPatch(patch: PatchResult) {
+    setSelectedPatch(patch)
+    setActiveTab('exercise') // stay on exercise or switch? User said CodePanel supports patch mode
+                             // maybe switch to 'symbol' tab but rename it to 'Details' or something?
+                             // design says "CodePanel can then support two modes"
+                             // I'll keep it as 'exercise' for the list, and maybe add a 'patch' tab?
+                             // No, I'll switch to 'symbol' tab but it will show the patch if selectedPatch is set and we were on exercise.
+    setActiveTab('symbol')
   }
 
   // ── When a symbol is selected, load its cached explanation ─────────────────
@@ -170,7 +184,7 @@ export default function App() {
             background: 'var(--bg-panel)',
             flexShrink: 0,
           }}>
-            {(['explorer', 'symbol'] as Tab[]).map((tab) => (
+            {(['explorer', 'symbol', 'exercise'] as Tab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -201,8 +215,14 @@ export default function App() {
               selectedSymbol={selectedSymbol}
               onSelectSymbol={handleSelectSymbol}
             />
+          ) : activeTab === 'symbol' ? (
+            <CodePanel 
+              symbol={selectedSymbol} 
+              patch={selectedPatch} 
+              mode={selectedPatch ? 'patch' : 'symbol'} 
+            />
           ) : (
-            <CodePanel symbol={selectedSymbol} />
+            <ExercisePanel onSelectPatch={handleSelectPatch} />
           )}
         </main>
 

@@ -82,6 +82,27 @@ class DatabaseManager:
             (root_path, language),
         )
 
+    def fetch_repo_info(self) -> dict | None:
+        """Return the repo_info row as a dict, or None."""
+        self.cur.execute("SELECT id, language, ingested_at, metadata FROM repo_info LIMIT 1")
+        row = self.cur.fetchone()
+        if not row:
+            return None
+        return {
+            "root": row[0],
+            "language": row[1],
+            "ingested_at": row[2],
+            "metadata": row[3],
+        }
+
+    def fetch_all_dependencies(self) -> list[DependencyModel]:
+        """Return all package dependencies discovered during ingestion."""
+        self.cur.execute("SELECT name, version, manifest_file, language FROM dependencies ORDER BY name")
+        return [
+            DependencyModel(name=r[0], version=r[1], manifest_file=r[2], language=r[3])
+            for r in self.cur.fetchall()
+        ]
+
     # ── Batch inserts ─────────────────────────────────────────────────────────
 
     def batch_insert_symbols(self, symbols: list[tuple]) -> None:

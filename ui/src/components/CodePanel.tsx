@@ -1,8 +1,10 @@
-import Editor from '@monaco-editor/react'
-import type { Symbol } from '../types'
+import Editor, { DiffEditor } from '@monaco-editor/react'
+import type { Symbol, PatchResult } from '../types'
 
 interface Props {
   symbol: Symbol | null
+  patch?: PatchResult | null
+  mode?: 'symbol' | 'patch'
 }
 
 // Map our language strings to Monaco language IDs.
@@ -17,7 +19,48 @@ const LANG_MAP: Record<string, string> = {
   c:          'c',
 }
 
-export default function CodePanel({ symbol }: Props) {
+export default function CodePanel({ symbol, patch, mode = 'symbol' }: Props) {
+  if (mode === 'patch' && patch) {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-base)' }}>
+        <div style={{
+          padding: '5px 12px',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-panel)',
+          fontSize: 12,
+          color: 'var(--text-dim)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <span>Patch: {patch.recommendation_id}</span>
+          <span>{patch.files.join(', ')}</span>
+        </div>
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <DiffEditor
+            height="100%"
+            original="" // We don't have the original full content easily here if multiple files, 
+                        // but DiffEditor usually takes two strings.
+                        // Actually, DiffEditor is for single file comparison.
+                        // If we have a single diff text, we might want a different viewer or 
+                        // just show the diff text in a regular editor with 'diff' language.
+            modified={patch.diff_text}
+            language="diff"
+            theme="vs-dark"
+            options={{
+              readOnly: true,
+              fontSize: 13,
+              fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              renderSideBySide: false,
+            }}
+          />
+        </div>
+      </div>
+    )
+  }
+
   if (!symbol) {
     return (
       <div style={{

@@ -40,3 +40,29 @@ export interface FileContent {
   content: string   // raw UTF-8 source text
   language: string  // e.g. 'python'
 }
+
+export interface Recommendation {
+  id: string
+  title: string
+  level: 'Easy' | 'Medium' | 'Hard' | string
+  description: string
+  file: string
+  files: string[]
+  rationale?: string
+  risks?: string[]
+}
+
+export interface PatchHunk {
+  hunk_header: string
+  explanation: string
+  affected_lines_old: number[]
+  affected_lines_new: number[]
+}
+
+export interface PatchResult {
+  recommendation_id: string
+  files: string[]
+  diff_text: string
+  explained_diff_text: string
+  hunks: PatchHunk[]
+}

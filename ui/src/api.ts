@@ -2,7 +2,7 @@
 // All endpoints are relative so the Vite proxy forwards them in dev,
 // and FastAPI serves them directly in production.
 
-import type { ExplanationResult, FileContent, FileInfo, Symbol } from './types'
+import type { ExplanationResult, FileContent, FileInfo, Symbol, Recommendation, PatchResult } from './types'
 
 const BASE = '/api'
 
@@ -104,4 +104,24 @@ export function streamExplanation(
 
 export function searchSymbols(query: string): Promise<Symbol[]> {
   return get<Symbol[]>(`/search?q=${encodeURIComponent(query)}`)
+}
+
+// ── Recommendation ────────────────────────────────────────────────────────────
+
+export function fetchRecommendations(): Promise<Recommendation[]> {
+  return get<Recommendation[]>('/recommendations')
+}
+
+export async function refreshRecommendations(): Promise<{ ok: boolean, count: number }> {
+  const res = await fetch(`${BASE}/recommendations/refresh`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText}`)
+  }
+  return res.json() as Promise<{ ok: boolean, count: number }>
+}
+
+export function fetchRecommendationPatch(id: string): Promise<PatchResult> {
+  return get<PatchResult>(`/recommendations/patch?id=${encodeURIComponent(id)}`)
 }
