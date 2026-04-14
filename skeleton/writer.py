@@ -6,64 +6,50 @@ class RepoMapWriter:
     """Renders the RepoMap data class into the final markdown format."""
 
     def write(self, repo_map: RepoMap, output_path: Path) -> Path:
-        lines = ["# Repository Map\n"]
+        lines = ["# 🗺️ Repository Map\n"]
 
         # 1. Repo Summary
-        lines.append("## 1. Repo Summary")
+        lines.append("## 1. 📊 Repo Summary")
         for key, val in repo_map.summary.items():
-            lines.append(f"- {key}: {val}")
+            lines.append(f"- **{key}**: {val}")
         lines.append("")
 
         # 2. Main Subsystems
-        lines.append("## 2. Main Subsystems")
+        lines.append("## 2. 🏗️ Main Subsystems")
         for sub in repo_map.subsystems:
-            lines.append(f"- {sub.name}/: {sub.description}")
+            lines.append(f"- 📁 **`{sub.name}/`**")
+            lines.append(f"  > {sub.description.strip()}")
         lines.append("")
 
-        # 3. Important Files
-        lines.append("## 3. Important Files")
+        # 3. Important Files (Includes Symbols)
+        lines.append("## 3. 📄 Important Files & Symbols")
         for f in repo_map.important_files:
-            lines.append(f"\n### {f.path}")
-            lines.append(f"Role: {f.role}")
-            lines.append("Why it matters:")
-            lines.append(f"- {f.why_it_matters}")
+            lines.append(f"\n### `{f.path}`")
+            lines.append(f"- **Role**: {f.role.strip()}")
+            lines.append(f"- **Importance**: {f.why_it_matters.strip()}")
             
             if f.explanation:
-                lines.append("Known explanation:")
-                sentences = re.split(r'(?<=[.!?])\s+', f.explanation.strip())
-                for s in sentences[:2]:
-                    if s.strip():
-                        lines.append(f"- {s.strip()}")
+                exp_clean = f.explanation.replace('\n', ' ').strip()
+                lines.append(f"  > {exp_clean}")
             
-            # Key symbols
             if f.symbols:
-                lines.append("Key symbols:")
+                lines.append("\n  **🔑 Key Symbols:**")
                 for sym in f.symbols:
                     sig_str = f" `{sym.signature}`" if sym.signature else ""
-                    lines.append(f"- `{sym.name}` ({sym.type}){sig_str}")
+                    lines.append(f"  - 🧩 **`{sym.name}`** ({sym.type}){sig_str}")
+                    if sym.explanation:
+                        sym_exp_clean = sym.explanation.replace('\n', ' ').strip()
+                        lines.append(f"    > {sym_exp_clean}")
         lines.append("")
 
-        # 4. Important Symbols by File
-        lines.append("## 4. Important Symbols by File")
-        for f in repo_map.important_files:
-            if not f.symbols:
-                continue
-            lines.append(f"\n### {f.path}")
-            for sym in f.symbols:
-                sig_str = f" `{sym.signature}`" if sym.signature else ""
-                lines.append(f"- `{sym.name}` ({sym.type}){sig_str}")
-                if sym.explanation:
-                    lines.append(f"  - {sym.explanation}")
-        lines.append("")
-
-        # 5. Suggested Reading Paths
-        lines.append("## 5. Suggested Reading Paths")
+        # 4. Suggested Reading Paths
+        lines.append("## 4. 🛤️ Suggested Reading Paths")
         for path in repo_map.reading_paths:
-            lines.append(f"- {path}")
+            lines.append(f"- ➡️ {path}")
         lines.append("")
 
-        # 6. Known Gaps / Limitations
-        lines.append("## 6. Known Gaps / Limitations")
+        # 5. Known Gaps / Limitations
+        lines.append("## 5. ⚠️ Known Gaps / Limitations")
         for gap in repo_map.gaps:
             lines.append(f"- {gap}")
         lines.append("")

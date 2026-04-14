@@ -24,8 +24,7 @@ what it does and why.
 Reply with exactly these four sections and no other text:
 
 SUMMARY
-One sentence. Name the symbol and its single clear responsibility. Mention where it \
-fits in the system if that context matters.
+Exactly ONE short sentence. Name the symbol and its single clear responsibility. Keep it extremely brief and not too big.
 Good example: "Job.run() is the scheduler's heartbeat — it checks whether the job's \
 next run time has passed and fires the callable, then reschedules the next execution."
 

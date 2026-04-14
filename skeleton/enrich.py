@@ -24,7 +24,7 @@ class RepoMapEnricher:
         enriched_files = []
         for f_data in ranked_files[:self.config.max_files]:
             file_path = f_data['path']
-            file_exp = self._get_explanation(file_path)
+            file_exp = self._get_explanation(file_path, full=False)
             symbols = self._get_ranked_symbols(file_path)
             role, why_it_matters = self._derive_role_and_why(file_path, file_exp, symbols)
 
@@ -174,20 +174,24 @@ class RepoMapEnricher:
                 name=name,
                 type=stype,
                 signature=sig or "",
-                explanation=self._get_explanation(qname),
+                explanation=self._get_explanation(qname, full=False),
                 score=score
             ))
         
         return sorted(ranked, key=lambda x: x.score, reverse=True)[:self.config.max_symbols_per_file]
 
-    def _get_explanation(self, target_id: str) -> Optional[str]:
+    def _get_explanation(self, target_id: str, full: bool = False) -> Optional[str]:
         self.db.cur.execute("SELECT text FROM explanations WHERE id = %s", (target_id,))
         row = self.db.cur.fetchone()
         if row:
             text = row[0].replace('\n', ' ').strip()
+            # Strip 'SUMMARY', 'Summary:', 'SUMMARY:', etc. from the beginning
+            text = re.sub(r'^(?i:summary[\s:]*)', '', text).strip()
+            if full:
+                return text
             sentences = re.split(r'(?<=[.!?])\s+', text)
-            summary = sentences[0] if sentences else text
-            return summary[:160]
+            # Return strictly the first sentence (the SUMMARY)
+            return sentences[0] if sentences else text
         return None
 
     def _infer_role(self, path: str) -> str:

@@ -10,7 +10,7 @@ password = "postgres"
 base_url    = "http://192.168.1.2:8090/v1"
 model       = "gemma4-e4b:Q4_K_XL"
 api_key     = "ollama"
-max_tokens  = 4096
+max_tokens  = 2048
 temperature = 1
 
 # Text-embedding model settings.
