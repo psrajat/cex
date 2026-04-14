@@ -7,6 +7,7 @@ import ExplorerPanel from './components/ExplorerPanel'
 import ExplanationPanel from './components/ExplanationPanel'
 import ExercisePanel from './components/ExercisePanel'
 import SearchBar from './components/SearchBar'
+import Onboarding from './components/Onboarding'
 
 type Tab = 'explorer' | 'symbol' | 'exercise'
 
@@ -19,6 +20,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<Symbol[] | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('explorer')
   const [selectedPatch, setSelectedPatch] = useState<PatchResult | null>(null)
+  const [showOnboarding, setShowOnboarding] = useState(false)
 
   // ── Explanation state ──────────────────────────────────────────────────────
   const [explanation, setExplanation] = useState<ParsedExplanation | null>(null)
@@ -26,10 +28,18 @@ export default function App() {
   const [streamError, setStreamError] = useState<string | null>(null)
 
   // ── Load file list on mount ────────────────────────────────────────────────
-  useEffect(() => {
+  const loadInitialFiles = () => {
     fetchFiles()
-      .then(setFiles)
-      .catch(() => {/* server not running yet — FileTree shows empty state */})
+      .then((data) => {
+        setFiles(data)
+        if (data.length === 0) setShowOnboarding(true)
+        else setShowOnboarding(false)
+      })
+      .catch(() => setShowOnboarding(true))
+  }
+
+  useEffect(() => {
+    loadInitialFiles()
   }, [])
 
   // ── When a symbol is selected from FileTree, switch to Symbol tab if file view
@@ -123,57 +133,74 @@ export default function App() {
   // ── Layout ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-base)' }}>
-      {/* Header */}
-      <header style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 16px',
-        height: 36,
-        background: 'var(--accent)',
-        flexShrink: 0,
-      }}>
-        <span style={{ fontWeight: 700, fontSize: 13, color: '#fff', letterSpacing: '0.03em' }}>
-          cex — Code EXplainer
-        </span>
-        {selectedSymbol && (
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>
-            {selectedFile && activeTab === 'explorer' ? selectedFile.id : selectedSymbol.qualified_name}
-          </span>
-        )}
-      </header>
+      {showOnboarding ? (
+        <Onboarding onComplete={loadInitialFiles} />
+      ) : (
+        <>
+          {/* Header */}
+          <header style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 16px',
+            height: 36,
+            background: 'var(--accent)',
+            flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontWeight: 700, fontSize: 13, color: '#fff', letterSpacing: '0.03em' }}>
+                cex — Code EXplainer
+              </span>
+              <button 
+                onClick={() => setShowOnboarding(true)}
+                title="Open Project"
+                style={{ 
+                   background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 4, 
+                   color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', 
+                   justifyContent: 'center', width: 24, height: 24
+                }}
+              >
+                📁
+              </button>
+            </div>
+            {selectedSymbol && (
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>
+                {selectedFile && activeTab === 'explorer' ? selectedFile.id : selectedSymbol.qualified_name}
+              </span>
+            )}
+          </header>
 
-      {/* Search bar */}
-      <div style={{
-        padding: '6px 10px',
-        borderBottom: '1px solid var(--border)',
-        background: 'var(--bg-sidebar)',
-        flexShrink: 0,
-      }}>
-        <SearchBar onSearch={handleSearch} onClear={handleClearSearch} />
-      </div>
+          {/* Search bar */}
+          <div style={{
+            padding: '6px 10px',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-sidebar)',
+            flexShrink: 0,
+          }}>
+            <SearchBar onSearch={handleSearch} onClear={handleClearSearch} />
+          </div>
 
-      {/* Three-column main area */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Left: file tree (or search results) */}
-        <aside style={{
-          width: 260,
-          flexShrink: 0,
-          borderRight: '1px solid var(--border)',
-          background: 'var(--bg-sidebar)',
-          overflowY: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          <FileTree
-            files={files}
-            searchResults={searchResults}
-            selectedSymbol={selectedSymbol}
-            selectedFileId={selectedFile?.id ?? null}
-            onSelectSymbol={handleSelectSymbol}
-            onSelectFile={handleSelectFile}
-          />
-        </aside>
+          {/* Three-column main area */}
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            {/* Left: file tree (or search results) */}
+            <aside style={{
+              width: 260,
+              flexShrink: 0,
+              borderRight: '1px solid var(--border)',
+              background: 'var(--bg-sidebar)',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+            }}>
+              <FileTree
+                files={files}
+                searchResults={searchResults}
+                selectedSymbol={selectedSymbol}
+                selectedFileId={selectedFile?.id ?? null}
+                onSelectSymbol={handleSelectSymbol}
+                onSelectFile={handleSelectFile}
+              />
+            </aside>
 
         {/* Centre: tabbed code view */}
         <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -202,7 +229,7 @@ export default function App() {
                   transition: 'color 0.1s',
                 }}
               >
-                {tab === 'explorer' ? 'Explorer' : 'Symbol'}
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </div>
@@ -236,15 +263,17 @@ export default function App() {
           display: 'flex',
           flexDirection: 'column',
         }}>
-          <ExplanationPanel
-            symbol={selectedSymbol}
-            explanation={explanation}
-            isStreaming={isStreaming}
-            streamError={streamError}
-            onGenerate={handleGenerate}
-          />
-        </aside>
-      </div>
+            <ExplanationPanel
+              symbol={selectedSymbol}
+              explanation={explanation}
+              isStreaming={isStreaming}
+              streamError={streamError}
+              onGenerate={handleGenerate}
+            />
+          </aside>
+        </div>
+      </>
+      )}
     </div>
   )
 }

@@ -4,8 +4,8 @@ Your goal is to suggest actionable PR ideas (exercises) that help a developer le
 
 Return ONLY a valid JSON array of recommendation objects.
 
-Suggest PRs that are realistic, incremental, and grounded in the provided codebase.
-Prefer improvements in residency, maintainability, architecture, developer experience, performance, or correctness.
+You MUST generate exactly 9 recommendations: 3 Easy, 3 Medium, and 3 Hard.
+CRITICAL: These recommendations must be grounded in the provided codebase. Focus on real-world refactoring, decoupling, architecture, state management, security, or domain-driven design tasks. Do NOT suggest superficial changes (e.g., adding type hints where obvious, or random docstrings) unless specifically addressing complex technical debt. Ensure that the difficulty level accurately reflects the real-world complexity of the change.
 
 Every recommendation must point to one primary 'file' and optionally related 'files'.
 
@@ -29,6 +29,6 @@ def build_recommendation_user_prompt(repo_name: str, skeleton_text: str) -> str:
 
 {skeleton_text}
 
-Suggest 8-12 recommendations based on this skeleton.
+Provide exactly 9 high-quality, real-world recommendations (3 Easy, 3 Medium, 3 Hard) based directly on this skeleton. Do not use random placeholder ideas.
 Return ONLY valid JSON.
 """

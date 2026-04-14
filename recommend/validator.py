@@ -4,15 +4,35 @@ from .models import Recommendation
 
 def validate_recommendations(raw_json: str, ingested_files: set[str]) -> list[Recommendation]:
     """Parse JSON, validate required keys, and filter by existing files."""
-    try:
-        data = json.loads(raw_json)
-    except json.JSONDecodeError:
-        # If it's wrapped in markdown code blocks, try to strip them
-        if "```json" in raw_json:
-            raw_json = raw_json.split("```json")[1].split("```")[0].strip()
-            data = json.loads(raw_json)
-        else:
-            raise
+    def _try_parse(text: str) -> any:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Salvage attempt: Find the last complete object '}' and close the array ']'
+            last_brace = text.rfind('}')
+            if last_brace != -1:
+                salvaged = text[:last_brace + 1] + "\n]"
+                try:
+                    return json.loads(salvaged)
+                except json.JSONDecodeError:
+                    pass
+            return None
+
+    # Step 1: Try raw parsing
+    data = _try_parse(raw_json)
+
+    # Step 2: Try stripping Markdown if raw failed
+    if data is None and "```json" in raw_json:
+        stripped = raw_json.split("```json")[1].split("```")[0].strip()
+        data = _try_parse(stripped)
+
+    # Step 3: Failure handling
+    if data is None:
+        raise ValueError(
+            "The LLM response was truncated or invalid JSON. "
+            "Please increase the 'max_tokens' setting in your config.toml "
+            "to allow for longer responses."
+        )
 
     if not isinstance(data, list):
         raise ValueError("Root must be a list")

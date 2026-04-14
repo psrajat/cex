@@ -24,18 +24,19 @@ from pathlib import Path
 from config import LoggingConfig
 
 
-def log_prompt(messages: list[dict], symbol_id: str, cfg: LoggingConfig) -> None:
+def log_prompt(messages: list[dict], symbol_id: str, cfg: LoggingConfig, log_name: str = "prompts.log") -> None:
     """Append one prompt record to the log file.
 
     ``messages`` — the list of ``{"role": ..., "content": ...}`` dicts as
                    returned by ``build_explain_prompt()``.
     ``symbol_id`` — the qualified name of the symbol being explained.
     ``cfg``        — LoggingConfig; if ``log_prompts`` is False this is a no-op.
+    ``log_name``   — name of the file to log to (default: prompts.log).
     """
     if not cfg.log_prompts:
         return
 
-    log_path = Path(cfg.log_dir) / "prompts.log"
+    log_path = Path(cfg.log_dir) / log_name
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")

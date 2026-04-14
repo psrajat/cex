@@ -204,7 +204,7 @@ def main():
         client = LLMClient(config.llm, config.embed)
         try:
             skeleton_engine = SkeletonEngine(db)
-            engine = RecommendationEngine(client, skeleton_engine)
+            engine = RecommendationEngine(client, skeleton_engine, log_cfg=config.logging)
             recs = engine.generate(force=args.fresh)
             print(f"Generated {len(recs)} recommendations.")
             for r in recs:
@@ -225,8 +225,8 @@ def main():
         client = LLMClient(config.llm, config.embed)
         try:
             skeleton_engine = SkeletonEngine(db)
-            recommend_engine = RecommendationEngine(client, skeleton_engine)
-            engine = PatchEngine(client, db, recommend_engine)
+            recommend_engine = RecommendationEngine(client, skeleton_engine, log_cfg=config.logging)
+            engine = PatchEngine(client, db, recommend_engine, log_cfg=config.logging)
             result = engine.generate(args.recommendation_id, force=args.fresh)
             print(f"Patch generated for: {args.recommendation_id}")
             print("\nExplained Diff:\n")

@@ -15,6 +15,7 @@ class PatchResult:
     explained_diff_text: str
     hunks: List[PatchHunkExplanation]
     files: List[str]
+    file_patches: List[dict]  # list of {path: str, old: str, new: str}
 
     def to_dict(self) -> dict:
         return {
@@ -30,5 +31,6 @@ class PatchResult:
                 }
                 for h in self.hunks
             ],
-            "files": self.files
+            "files": self.files,
+            "file_patches": self.file_patches
         }

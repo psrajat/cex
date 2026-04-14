@@ -65,4 +65,5 @@ export interface PatchResult {
   diff_text: string
   explained_diff_text: string
   hunks: PatchHunk[]
+  file_patches: Array<{ path: string, old: string, new: string }>
 }

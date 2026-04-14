@@ -5,6 +5,7 @@ from skeleton.engine import SkeletonEngine
 from .models import Recommendation
 from .prompts import build_recommendation_system_prompt, build_recommendation_user_prompt
 from .validator import validate_recommendations
+from llm.logger import log_prompt
 
 class RecommendationEngine:
     """Generates actionable PR ideas from the skeleton and stores them as JSON."""
@@ -13,16 +14,17 @@ class RecommendationEngine:
         self, 
         client: LLMClient, 
         skeleton_engine: SkeletonEngine, 
-        output_path: Path = Path("data/recommendations.json")
+        log_cfg = None
     ):
         self.client = client
         self.skeleton_engine = skeleton_engine
-        self.output_path = output_path
+        self.log_cfg = log_cfg
+        self._cached_recs: list[Recommendation] | None = None
 
     def generate(self, force: bool = False) -> list[Recommendation]:
-        """Ask the LLM for recommendations based on the skeleton and save to disk."""
-        if not force and self.output_path.exists():
-            return self.load()
+        """Ask the LLM for recommendations based on the skeleton."""
+        if not force and self._cached_recs is not None:
+            return self._cached_recs
 
         skeleton_text = self.skeleton_engine.load()
         repo_info = self.skeleton_engine.db.fetch_repo_info()
@@ -37,6 +39,9 @@ class RecommendationEngine:
             {"role": "user", "content": user_prompt}
         ]
 
+        if self.log_cfg:
+            log_prompt(messages, repo_name, self.log_cfg, log_name="recommendations.log")
+
         # Use chat completion (client.chat_completion or similar)
         # Looking at LLMClient in previous turns, it has stream_chat and chat.
         # Let's check LLMClient exactly.
@@ -48,18 +53,41 @@ class RecommendationEngine:
         
         recommendations = validate_recommendations(raw_response, ingested_files)
         
-        # Save to disk
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.output_path, "w", encoding="utf-8") as f:
-            json.dump([r.to_dict() for r in recommendations], f, indent=2)
-            
+        # Log a snaphot with timestamp
+        if self.log_cfg:
+            from datetime import datetime
+            log_dir = Path(self.log_cfg.log_dir) / "recommendations"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_file = log_dir / f"recs_{ts}.json"
+            with open(log_file, "w", encoding="utf-8") as f:
+                json.dump([r.to_dict() for r in recommendations], f, indent=2)
+
+        self._cached_recs = recommendations
+        
+        # Persistence: avoid re-generation across server restarts by project
+        try:
+            cache_file = Path("data") / f"{self.skeleton_engine.db.config.name}_recs.json"
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump([r.to_dict() for r in recommendations], f, indent=2)
+        except Exception as e:
+            print(f"Warning: could not cache recommendations: {e}")
         return recommendations
 
     def load(self) -> list[Recommendation]:
-        """Load recommendations from the JSON file."""
-        if not self.output_path.exists():
-            return self.generate()
-        
-        with open(self.output_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return [Recommendation.from_dict(d) for d in data]
+        """Return memory-cached recommendations, load from file, or generate them."""
+        if self._cached_recs is not None:
+            return self._cached_recs
+            
+        try:
+            cache_file = Path("data") / f"{self.skeleton_engine.db.config.name}_recs.json"
+            if cache_file.exists():
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self._cached_recs = [Recommendation.from_dict(d) for d in data]
+                    return self._cached_recs
+        except Exception as e:
+            print(f"Warning: could not load recommendation cache: {e}")
+
+        return self.generate()

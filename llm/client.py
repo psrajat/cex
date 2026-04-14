@@ -32,7 +32,7 @@ class LLMClient:
         self._http = httpx.Client(
             base_url=llm.base_url,
             headers={"Authorization": f"Bearer {llm.api_key}"},
-            timeout=180.0,  # local LLMs can be slow on first token
+            timeout=600.0,  # local LLMs can be slow on first token
             transport=httpx.HTTPTransport(retries=3),
         )
 

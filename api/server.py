@@ -22,6 +22,8 @@ In production (after running `npm run build` in ui/), also serves the compiled
 React app from ui/dist/ and falls back to index.html for all unmatched routes.
 """
 
+import json
+import os
 from collections.abc import Generator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -95,15 +97,28 @@ class PatchHunkOut(BaseModel):
     affected_lines_new: list[int]
 
 
+class FilePatchOut(BaseModel):
+    path: str
+    old: str
+    new: str
+
 class PatchOut(BaseModel):
     recommendation_id: str
     files: list[str]
     diff_text: str
     explained_diff_text: str
     hunks: list[PatchHunkOut]
+    file_patches: list[FilePatchOut]
+
+
+class IngestRequest(BaseModel):
+    repo_dir: str
+    force: bool = False
 
 
 # ── Shared state (initialised during lifespan) ────────────────────────────────
+
+_ACTIVE_DB_FILE = Path("data/.active_db.json")
 
 _db: DatabaseManager
 _client: LLMClient
@@ -117,19 +132,57 @@ _patch_engine: PatchEngine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Open DB + LLM connections once at startup; close them on shutdown."""
-    global _db, _client, _retriever, _engine, _skeleton_engine, _recommendation_engine, _patch_engine
+    from config import DBConfig
+    
     cfg = load_config()
-    _db = DatabaseManager(cfg.db)
+    db_config = cfg.db
+    
+    # Try to restore last active project
+    if _ACTIVE_DB_FILE.exists():
+        try:
+            with open(_ACTIVE_DB_FILE, "r") as f:
+                data = json.load(f)
+                db_config = DBConfig(**data)
+                print(f"Restoring project database: {db_config.name}")
+        except Exception as e:
+            print(f"Failed to restore active DB: {e}")
+            
+    _init_engines(db_config)
+    yield
+    global _db, _client
+    if _db: _db.close()
+    if _client: _client.close()
+
+def _init_engines(db_config):
+    """Rebind all global engines to point to the active database."""
+    global _db, _client, _retriever, _engine, _skeleton_engine, _recommendation_engine, _patch_engine
+    
+    if '_db' in globals() and _db is not None:
+        try: _db.close()
+        except: pass
+        
+    if '_client' in globals() and _client is not None:
+        try: _client.close()
+        except: pass
+
+    cfg = load_config()
+    _db = DatabaseManager(db_config)
     _db.connect()
     _client = LLMClient(cfg.llm, cfg.embed)
     _retriever = Retriever(_db, _client)
     _engine = ExplainEngine(_db, _client, _retriever, log_cfg=cfg.logging)
     _skeleton_engine = SkeletonEngine(_db)
-    _recommendation_engine = RecommendationEngine(_client, _skeleton_engine)
-    _patch_engine = PatchEngine(_client, _db, _recommendation_engine)
-    yield
-    _db.close()
-    _client.close()
+    _recommendation_engine = RecommendationEngine(_client, _skeleton_engine, log_cfg=cfg.logging)
+    _patch_engine = PatchEngine(_client, _db, _recommendation_engine, log_cfg=cfg.logging)
+
+    # Persist the choice
+    try:
+        from dataclasses import asdict
+        _ACTIVE_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(_ACTIVE_DB_FILE, "w") as f:
+            json.dump(asdict(db_config), f)
+    except Exception as e:
+        print(f"Warning: Could not save active DB state: {e}")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -214,6 +267,68 @@ def get_file_content(file: str = Query(..., description="Relative file path")):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return FileContentOut(file=file, content=content, language=language)
+
+
+# ── Ingestion ─────────────────────────────────────────────────────────────────
+
+@app.post("/api/ingest")
+def ingest_repo(req: IngestRequest):
+    """Swap the active database context to the requested repo. Overwrite if 'force' is checked."""
+    from ingestion.engine import IngestionEngine
+    from search.embeddings import EmbeddingEngine
+    from config import DBConfig
+    import setup_db
+    import re
+    import hashlib
+
+    cfg = load_config()
+    
+    # Generate unique DB name for this repo
+    clean_name = re.sub(r'[^a-z0-9]', '_', Path(req.repo_dir).name.lower())[:30]
+    hash_suffix = hashlib.md5(req.repo_dir.encode("utf-8")).hexdigest()[:6]
+    db_name = f"cex_{clean_name}_{hash_suffix}"
+
+    try:
+        db_config = DBConfig(
+            host=cfg.db.host, name=db_name, user=cfg.db.user, password=cfg.db.password
+        )
+        
+        if req.force:
+            setup_db.reset_database(db_config, embed_dim=cfg.embed.dim)
+        else:
+            setup_db.setup_database(db_config, embed_dim=cfg.embed.dim)
+        
+        # Point API globals to the new project database instantly
+        _init_engines(db_config)
+        
+        if req.force:
+            # Reingest
+            IngestionEngine(req.repo_dir, db_config).run()
+            # We don't drop db inside here, _db is already connected
+            EmbeddingEngine(_db, _client, cfg.embed).run(force=True)
+            SkeletonEngine(_db).build(force=True)
+            ExplainEngine(_db, _client, Retriever(_db, _client), log_cfg=cfg.logging).build_all(fresh=True)
+
+        return {"ok": True, "message": f"Successfully loaded project in database {db_name}"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── File System ────────────────────────────────────────────────────────────
+
+@app.get("/api/fs/ls")
+def list_directory(path: str = Query(..., description="Absolute path to list")):
+    """List sub-directories for the file system picker."""
+    p = Path(path)
+    if not p.is_dir():
+        return {"directories": []}
+    
+    try:
+        dirs = [d.name for d in p.iterdir() if d.is_dir() and not d.name.startswith('.')]
+        return {"directories": sorted(dirs)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ── Symbol endpoints ──────────────────────────────────────────────────────────
@@ -368,6 +483,10 @@ def get_recommendation_patch(id: str = Query(..., description="Recommendation ID
                     affected_lines_new=h.affected_lines_new
                 )
                 for h in result.hunks
+            ],
+            file_patches=[
+                FilePatchOut(path=p["path"], old=p["old"], new=p["new"])
+                for p in result.file_patches
             ]
         )
     except ValueError as exc:

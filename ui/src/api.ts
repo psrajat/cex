@@ -17,12 +17,38 @@ async function get<T>(path: string): Promise<T> {
 
 // ── Files ─────────────────────────────────────────────────────────────────────
 
+// ── File System Picker ───────────────────────────────────────────────────────
+
+export async function listDirectories(path: string): Promise<string[]> {
+  const res = await fetch(`${BASE}/fs/ls?path=${encodeURIComponent(path)}`)
+  if (!res.ok) throw new Error('Failed to list directories')
+  const data = await res.json()
+  return data.directories
+}
+
 export function fetchFiles(): Promise<FileInfo[]> {
   return get<FileInfo[]>('/files')
 }
 
 export function fetchFileContent(fileId: string): Promise<FileContent> {
   return get<FileContent>(`/file-content?file=${encodeURIComponent(fileId)}`)
+}
+
+// ── Ingestion ────────────────────────────────────────────────────────────────
+
+export async function ingestRepo(
+  payload: { repo_dir: string, force: boolean }
+): Promise<{ ok: boolean, message: string }> {
+  const res = await fetch(`${BASE}/ingest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status} ${res.statusText}: ${text}`)
+  }
+  return res.json()
 }
 
 // ── Symbols ──────────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Editor, { DiffEditor } from '@monaco-editor/react'
 import type { Symbol, PatchResult } from '../types'
 
@@ -20,7 +21,12 @@ const LANG_MAP: Record<string, string> = {
 }
 
 export default function CodePanel({ symbol, patch, mode = 'symbol' }: Props) {
+  const [patchTab, setPatchTab] = useState<'unified' | 'split' | 'explanation'>('unified')
+  const [selectedFileIdx, setSelectedFileIdx] = useState(0)
+
   if (mode === 'patch' && patch) {
+    const currentFile = patch.file_patches?.[selectedFileIdx]
+
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-base)' }}>
         <div style={{
@@ -34,28 +40,83 @@ export default function CodePanel({ symbol, patch, mode = 'symbol' }: Props) {
           alignItems: 'center'
         }}>
           <span>Patch: {patch.recommendation_id}</span>
-          <span>{patch.files.join(', ')}</span>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {patch.file_patches?.length > 1 && patchTab === 'split' && (
+              <select 
+                value={selectedFileIdx}
+                onChange={e => setSelectedFileIdx(parseInt(e.target.value))}
+                style={{ background: 'var(--bg-base)', color: 'var(--text)', border: '1px solid var(--border)', fontSize: 11 }}
+              >
+                {patch.file_patches.map((fp, i) => (
+                  <option key={fp.path} value={i}>{fp.path}</option>
+                ))}
+              </select>
+            )}
+            <span>{patch.files.join(', ')}</span>
+          </div>
         </div>
+        
+        {/* Tab bar */}
+        <div style={{ display: 'flex', background: 'var(--bg-base)', borderBottom: '1px solid var(--border)' }}>
+          {(['unified', 'split', 'explanation'] as const).map(t => (
+            <button 
+              key={t}
+              onClick={() => setPatchTab(t)}
+              style={{ 
+                padding: '10px 16px', 
+                background: patchTab === t ? 'var(--bg-panel)' : 'transparent', 
+                border: 'none', 
+                borderBottom: patchTab === t ? '2px solid var(--accent)' : '2px solid transparent',
+                color: patchTab === t ? 'var(--text)' : 'var(--text-muted)',
+                cursor: 'pointer', fontSize: 12, fontWeight: patchTab === t ? 600 : 400,
+                textTransform: 'capitalize'
+              }}
+            >
+              {t === 'unified' ? 'Unified Diff' : t === 'split' ? 'Split Diff' : 'Explanation'}
+            </button>
+          ))}
+        </div>
+
         <div style={{ flex: 1, overflow: 'hidden' }}>
-          <DiffEditor
-            height="100%"
-            original="" // We don't have the original full content easily here if multiple files, 
-                        // but DiffEditor usually takes two strings.
-                        // Actually, DiffEditor is for single file comparison.
-                        // If we have a single diff text, we might want a different viewer or 
-                        // just show the diff text in a regular editor with 'diff' language.
-            modified={patch.diff_text}
-            language="diff"
-            theme="vs-dark"
-            options={{
-              readOnly: true,
-              fontSize: 13,
-              fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              renderSideBySide: false,
-            }}
-          />
+          {patchTab === 'explanation' ? (
+            <div style={{ padding: 20, overflowY: 'auto', height: '100%', color: 'var(--text)', fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+               {patch.explained_diff_text || 'No explanation provided.'}
+            </div>
+          ) : patchTab === 'split' ? (
+            <DiffEditor
+              height="100%"
+              original={currentFile?.old || ''} 
+              modified={currentFile?.new || ''}
+              language={LANG_MAP[currentFile?.path.split('.').pop() || ''] || 'plaintext'}
+              theme="vs-dark"
+              options={{
+                readOnly: true,
+                fontSize: 13,
+                fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                renderSideBySide: true,
+              }}
+            />
+          ) : (
+            <Editor
+              height="100%"
+              value={patch.diff_text}
+              language="diff"
+              theme="vs-dark"
+              options={{
+                readOnly: true,
+                fontSize: 13,
+                fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                wordWrap: 'on',
+                renderWhitespace: 'none',
+                scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+                padding: { top: 12, bottom: 12 },
+              }}
+            />
+          )}
         </div>
       </div>
     )
