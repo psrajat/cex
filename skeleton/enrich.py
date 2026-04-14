@@ -147,7 +147,7 @@ class RepoMapEnricher:
                 score=float(score)
             ))
         
-        return sorted(ranked, key=lambda x: x['score'], reverse=True)[:self.config.max_symbols_per_file]
+        return sorted(ranked, key=lambda x: x.score, reverse=True)[:self.config.max_symbols_per_file]
 
     def _get_explanation(self, target_id: str) -> Optional[str]:
         self.db.cur.execute("SELECT text FROM explanations WHERE id = %s", (target_id,))
