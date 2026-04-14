@@ -1,5 +1,6 @@
 from pathlib import Path
 from .models import RepoMap
+import re
 
 class RepoMapWriter:
     """Renders the RepoMap data class into the final markdown format."""
@@ -27,15 +28,19 @@ class RepoMapWriter:
             lines.append("Why it matters:")
             lines.append(f"- {f.why_it_matters}")
             
-            # Key symbols (names only)
-            if f.symbols:
-                lines.append("Key symbols:")
-                sym_names = [sym.name for sym in f.symbols]
-                lines.append(f"- {', '.join(sym_names)}")
-            
             if f.explanation:
                 lines.append("Known explanation:")
-                lines.append(f"- {f.explanation}")
+                sentences = re.split(r'(?<=[.!?])\s+', f.explanation.strip())
+                for s in sentences[:2]:
+                    if s.strip():
+                        lines.append(f"- {s.strip()}")
+            
+            # Key symbols
+            if f.symbols:
+                lines.append("Key symbols:")
+                for sym in f.symbols:
+                    sig_str = f" `{sym.signature}`" if sym.signature else ""
+                    lines.append(f"- `{sym.name}` ({sym.type}){sig_str}")
         lines.append("")
 
         # 4. Important Symbols by File
@@ -45,7 +50,8 @@ class RepoMapWriter:
                 continue
             lines.append(f"\n### {f.path}")
             for sym in f.symbols:
-                lines.append(f"- {sym.name} [{sym.type}]")
+                sig_str = f" `{sym.signature}`" if sym.signature else ""
+                lines.append(f"- `{sym.name}` ({sym.type}){sig_str}")
                 if sym.explanation:
                     lines.append(f"  - {sym.explanation}")
         lines.append("")

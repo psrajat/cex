@@ -1,6 +1,6 @@
 import re
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from .models import RepoMap, EnrichedFile, EnrichedSymbol, Subsystem, RepoMapConfig
 from ingestion.database import DatabaseManager
@@ -19,76 +19,106 @@ class RepoMapEnricher:
 
         repo_map = RepoMap()
 
-        # 1. Repo Summary
-        repo_map.summary = self._generate_summary()
-
-        # 2. Main Subsystems
-        repo_map.subsystems = self._generate_subsystems()
-
         # 3. Rank and Enrich Files
         ranked_files = self._rank_files()
+        enriched_files = []
         for f_data in ranked_files[:self.config.max_files]:
             file_path = f_data['path']
+            file_exp = self._get_explanation(file_path)
+            symbols = self._get_ranked_symbols(file_path)
+            role, why_it_matters = self._derive_role_and_why(file_path, file_exp, symbols)
+
             enriched_file = EnrichedFile(
                 path=file_path,
-                role=self._infer_role(file_path),
-                why_it_matters=self._infer_why_it_matters(file_path),
+                role=role,
+                why_it_matters=why_it_matters,
                 score=f_data['score'],
-                explanation=self._get_explanation(file_path)
+                explanation=file_exp,
+                symbols=symbols
             )
+            enriched_files.append(enriched_file)
+            
+        repo_map.important_files = enriched_files
 
-            # 4. Rank and Enrich Symbols for this file
-            enriched_file.symbols = self._get_ranked_symbols(file_path)
-            repo_map.important_files.append(enriched_file)
+        # 1. Repo Summary
+        repo_map.summary = self._generate_summary(enriched_files)
+
+        # 2. Main Subsystems
+        repo_map.subsystems = self._generate_subsystems(enriched_files)
 
         # 5. Suggested Reading Paths
-        repo_map.reading_paths = self._generate_reading_paths()
+        repo_map.reading_paths = self._generate_reading_paths(enriched_files)
 
         # 6. Gaps / Limitations
-        repo_map.gaps = self._generate_gaps()
+        repo_map.gaps = self._generate_gaps(ranked_files, enriched_files)
 
         return repo_map
 
-    def _generate_summary(self) -> Dict[str, str]:
+    def _derive_role_and_why(self, path: str, file_exp: Optional[str], symbols: List[EnrichedSymbol]) -> Tuple[str, str]:
+        if file_exp:
+            sentences = re.split(r'(?<=[.!?])\s+', file_exp.strip())
+            role = sentences[0] if sentences else file_exp
+            why = " ".join(sentences[1:]) if len(sentences) > 1 else self._infer_why_it_matters(path)
+            return role.strip(), why.strip()
+
+        sym_exps = [s.explanation for s in symbols if s.explanation]
+        if sym_exps:
+            role = sym_exps[0]
+            why = " ".join(sym_exps[1:3]) if len(sym_exps) > 1 else self._infer_why_it_matters(path)
+            return role.strip(), why.strip()
+            
+        if symbols:
+            role = f"Defines {symbols[0].type} {symbols[0].name}"
+            why = f"Contains {len(symbols)} key symbols including " + ", ".join(s.name for s in symbols[:3])
+            return role.strip(), why.strip()
+
+        return self._infer_role(path), self._infer_why_it_matters(path)
+
+    def _generate_summary(self, enriched_files: List[EnrichedFile]) -> Dict[str, str]:
         repo_info = self.db.fetch_repo_info()
+        entrypoints = [f.path for f in enriched_files if f.path.endswith('main.py') or f.path.endswith('server.py') or 'setup' in f.path or 'bootstrap' in f.path]
+        if not entrypoints:
+            entrypoints = [f.path for f in enriched_files[:3]]
+
+        dirs = set(f.path.split('/')[0] for f in enriched_files if '/' in f.path)
+        caps = list(dirs) if dirs else ["components"]
+        
         return {
             "Purpose": repo_info.get("metadata", {}).get("purpose", "Code analysis and explanation tool."),
             "Primary language": repo_info.get("language", "Python"),
-            "Main entrypoints": "main.py, api/server.py",
-            "Core capabilities": "ingestion, embedding, search, explanation, API serving"
+            "Main entrypoints": ", ".join(entrypoints[:3]) if entrypoints else "Inferred from files",
+            "Core capabilities": ", ".join(caps[:5])
         }
 
-    def _generate_subsystems(self) -> List[Subsystem]:
-        """Inferred from top-level directories."""
+    def _generate_subsystems(self, enriched_files: List[EnrichedFile]) -> List[Subsystem]:
+        """Inferred from top-level directories and actual evidence."""
         subsystems = []
-        # Get top-level dirs from files table
-        self.db.cur.execute("SELECT DISTINCT split_part(id, '/', 1) FROM files WHERE id LIKE '%%/%%'")
-        dirs = [r[0] for r in self.db.cur.fetchall() if r[0]]
-        
-        descriptions = {
-            "ingestion": "Parses repository files and stores extracted structure",
-            "search": "Performs semantic and keyword retrieval",
-            "explain": "Generates and caches explanations",
-            "api": "Serves endpoints for files, search, and explanation",
-            "llm": "Wraps the OpenAI-compatible backend",
-            "ui": "Frontend for exploration and explanation"
-        }
-
-        for d in dirs:
-            desc = descriptions.get(d, self._get_explanation(d) or "Supporting subsystem logic.")
+        dir_to_files = {}
+        for f in enriched_files:
+            if '/' in f.path:
+                d = f.path.split('/')[0]
+                dir_to_files.setdefault(d, []).append(f)
+                
+        for d, files in dir_to_files.items():
+            exps = []
+            for f in files:
+                if f.explanation:
+                    exps.append(f.explanation)
+                for s in f.symbols:
+                    if s.explanation:
+                        exps.append(s.explanation)
+            
+            desc = exps[0] if exps else f"Contains {len(files)} key files."
             subsystems.append(Subsystem(name=d, description=desc))
         
         return subsystems
 
     def _rank_files(self) -> List[Dict[str, Any]]:
-        """
-        file_score = 4 * explanation_exists + 3 * symbol_count + 2 * import_count + 3 * path_bonus + 2 * filename_bonus
-        """
         self.db.cur.execute("""
             SELECT f.id, 
                    COUNT(DISTINCT s.id) as sym_count,
-                   (SELECT COUNT(*) FROM file_imports WHERE file_id = f.id) as imp_count,
-                   EXISTS(SELECT 1 FROM explanations WHERE id = f.id) as has_exp
+                   EXISTS(SELECT 1 FROM explanations WHERE id = f.id) as has_exp,
+                   (SELECT COUNT(*) FROM symbols s2 JOIN explanations e ON s2.qualified_name = e.id WHERE s2.file_id = f.id) as exp_sym_count
             FROM files f
             LEFT JOIN symbols s ON s.file_id = f.id
             GROUP BY f.id
@@ -96,26 +126,26 @@ class RepoMapEnricher:
         files_data = self.db.cur.fetchall()
 
         ranked = []
-        for fid, sym_count, imp_count, has_exp in files_data:
-            score = (4 if has_exp else 0) + (3 * sym_count) + (2 * imp_count)
+        for fid, sym_count, has_exp, exp_sym_count in files_data:
+            score = 0.0
+            if has_exp:
+                score += 10.0
+            score += (exp_sym_count * 2.0)
             
-            # path_role_bonus
-            if any(p in fid for p in ['api/', 'engine.py', 'client.py', 'parser.py', 'main.py', 'config', 'setup']):
-                score += 3
-            
-            # filename_bonus
-            fname = os.path.basename(fid)
-            if fname in ['main.py', 'server.py', 'engine.py', 'client.py', 'parser.py', 'setup_db.py']:
-                score += 2
-            
-            ranked.append({'path': fid, 'score': float(score)})
+            fid_lower = fid.lower()
+            if any(p in fid_lower for p in ['api', 'client', 'server', 'router', 'endpoint']):
+                score += 5.0
+            if any(p in fid_lower for p in ['main.py', 'setup', 'bootstrap', 'app.py', 'core', 'engine']):
+                score += 5.0
+                
+            if sym_count > 0:
+                score += min(sym_count, 10) * 0.1
+                
+            ranked.append({'path': fid, 'score': score})
         
         return sorted(ranked, key=lambda x: x['score'], reverse=True)
 
     def _get_ranked_symbols(self, file_path: str) -> List[EnrichedSymbol]:
-        """
-        symbol_score = 4 * explanation_exists + 3 * public_bonus + 3 * type_bonus + 2 * signature_exists
-        """
         self.db.cur.execute("""
             SELECT s.qualified_name, s.name, s.type, s.signature,
                    EXISTS(SELECT 1 FROM explanations WHERE id = s.qualified_name) as has_exp
@@ -126,25 +156,26 @@ class RepoMapEnricher:
 
         ranked = []
         for qname, name, stype, sig, has_exp in symbols:
-            score = (4 if has_exp else 0)
-            
+            score = 0.0
+            if has_exp:
+                score += 10.0
             if not name.startswith('_'):
-                score += 3
-            
-            if stype in ['class', 'endpoint']:
-                score += 3
-            elif stype == 'function':
-                score += 2
-            
+                score += 5.0
             if sig:
-                score += 2
+                score += 2.0
+            if stype in ['class', 'endpoint', 'interface']:
+                score += 4.0
+            elif stype == 'method' and not name.startswith('_'):
+                score += 2.0
+            elif stype == 'function':
+                score += 1.0
             
             ranked.append(EnrichedSymbol(
                 name=name,
                 type=stype,
                 signature=sig or "",
                 explanation=self._get_explanation(qname),
-                score=float(score)
+                score=score
             ))
         
         return sorted(ranked, key=lambda x: x.score, reverse=True)[:self.config.max_symbols_per_file]
@@ -172,16 +203,43 @@ class RepoMapEnricher:
         if 'db' in path or 'models' in path: return "Defines the data contracts and persistence schema."
         return "Provides necessary utilities and business logic."
 
-    def _generate_reading_paths(self) -> List[str]:
-        return [
-            "To understand API flow: api/server.py -> explain/engine.py -> llm/client.py",
-            "To understand indexing: main.py -> ingestion/engine.py -> ingestion/parser.py",
-            "To understand retrieval: search/retriever.py -> search/embeddings.py"
-        ]
+    def _generate_reading_paths(self, enriched_files: List[EnrichedFile]) -> List[str]:
+        paths = []
+        api_files = [f.path for f in enriched_files if 'api' in f.path or 'server' in f.path]
+        engine_files = [f.path for f in enriched_files if 'engine' in f.path or 'core' in f.path]
+        backend_files = [f.path for f in enriched_files if 'client' in f.path or 'db' in f.path]
+        
+        if api_files and engine_files and backend_files:
+            paths.append(f"API Flow: {api_files[0]} -> {engine_files[0]} -> {backend_files[0]}")
+            
+        entry_files = [f.path for f in enriched_files if 'main' in f.path or 'setup' in f.path]
+        ingest_files = [f.path for f in enriched_files if 'ingest' in f.path]
+        parse_files = [f.path for f in enriched_files if 'parse' in f.path or 'index' in f.path]
+        
+        if entry_files and ingest_files and parse_files:
+            paths.append(f"Indexing path: {entry_files[0]} -> {ingest_files[0]} -> {parse_files[0]}")
+            
+        retrieval_files = [f.path for f in enriched_files if 'search' in f.path or 'retrieve' in f.path]
+        if retrieval_files:
+            paths.append(f"Retrieval path: {' -> '.join(retrieval_files[:3])}")
+            
+        if not paths:
+            paths = [f"General flow: {' -> '.join(f.path for f in enriched_files[:3])}"]
+            
+        return paths
 
-    def _generate_gaps(self) -> List[str]:
-        return [
-            "Repo map is partial and ranked based on symbols and explanations.",
-            "Parsing is primarily Python-focused.",
-            "Cached explanations may lag behind recent source changes."
-        ]
+    def _generate_gaps(self, ranked_files: List[Dict[str, Any]], enriched_files: List[EnrichedFile]) -> List[str]:
+        gaps = []
+        total_files = len(ranked_files)
+        shown_files = len(enriched_files)
+        if total_files > shown_files:
+            gaps.append(f"Repo map partiality: Showing {shown_files} of {total_files} ranked files (based on configured max_files).")
+            
+        has_exps = any(f.explanation for f in enriched_files) or any(s.explanation for f in enriched_files for s in f.symbols)
+        if has_exps:
+            gaps.append("Explanations are cached and may not reflect uncommitted or very recent code changes.")
+        else:
+            gaps.append("Repo currently lacks generated explanations; relying on names and signatures.")
+            
+        gaps.append(f"Symbol details are limited to top {self.config.max_symbols_per_file} per file.")
+        return gaps
