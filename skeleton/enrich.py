@@ -90,7 +90,7 @@ class RepoMapEnricher:
                    (SELECT COUNT(*) FROM file_imports WHERE file_id = f.id) as imp_count,
                    EXISTS(SELECT 1 FROM explanations WHERE id = f.id) as has_exp
             FROM files f
-            LEFT JOIN symbols s ON s.file_path = f.id
+            LEFT JOIN symbols s ON s.file_id = f.id
             GROUP BY f.id
         """)
         files_data = self.db.cur.fetchall()
@@ -120,7 +120,7 @@ class RepoMapEnricher:
             SELECT s.qualified_name, s.name, s.type, s.signature,
                    EXISTS(SELECT 1 FROM explanations WHERE id = s.qualified_name) as has_exp
             FROM symbols s
-            WHERE s.file_path = %s
+            WHERE s.file_id = %s
         """, (file_path,))
         symbols = self.db.cur.fetchall()
 
