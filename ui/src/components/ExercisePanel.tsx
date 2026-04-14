@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { fetchRecommendations, refreshRecommendations, fetchRecommendationPatch } from '../api'
 import type { Recommendation, PatchResult } from '../types'
 
@@ -11,6 +11,7 @@ export default function ExercisePanel({ onSelectPatch }: Props) {
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [patchLoadingId, setPatchLoadingId] = useState<string | null>(null)
+  const hasLoaded = useRef(false)
 
   const loadRecs = () => {
     setLoading(true)
@@ -21,7 +22,10 @@ export default function ExercisePanel({ onSelectPatch }: Props) {
   }
 
   useEffect(() => {
-    loadRecs()
+    if (!hasLoaded.current) {
+      loadRecs()
+      hasLoaded.current = true
+    }
   }, [])
 
   const handleRefresh = async () => {

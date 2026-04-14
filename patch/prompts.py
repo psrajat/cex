@@ -9,6 +9,7 @@ Rules:
 2. Preserve the existing code style and naming conventions.
 3. Do not invent new framework layers unless necessary.
 4. Return ONLY a valid JSON object.
+5. CRITICAL: For every path in the 'files' array, the 'updated_content' field MUST contain the FULL rewritten file content from start to finish. Do NOT use comments like "existing code here..." or omit any unchanged lines. Any omission will be interpreted as a deletion and will break the codebase. Failure to return the full file is unacceptable.
 
 JSON format:
 {

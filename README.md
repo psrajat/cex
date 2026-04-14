@@ -18,30 +18,50 @@ It ingests a repo into PostgreSQL, generates vector embeddings, and uses a local
 
 ## Quick Start
 
+### 1. Start Service Infrastructure
 ```bash
-# 1. Start the database
-docker compose up -d
-
-# 2. Install dependencies
-uv sync
-
-# 3. Initialise the schema
-uv run python main.py setup
-
-# 4. Ingest a repository
-uv run python main.py ingest /path/to/your/repo
-
-# 5. Generate embeddings (requires embed model to be running)
-uv run python main.py embed
-
-# 6. Pre-build explanations (runs in background, no output shown)
-uv run python main.py build
-
-# 7. Query an explanation
-uv run python main.py explain "Job.run"
-uv run python main.py explain schedule/__init__.py
-uv run python main.py explain "how does the scheduler handle time zones"
+docker compose up -d   # Start PostgreSQL + pgvector
+uv sync                # Install dependencies
 ```
+
+### 2. Run the Platform
+```bash
+# Start the backend server and Web UI
+uv run python main.py server
+```
+Once the server is running, open **http://localhost:8000** in your browser to begin onboarding.
+
+---
+
+## Logical Architecture
+
+The diagram below illustrates the flow from source code ingestion to interactive explanation.
+
+```mermaid
+graph TD
+    subgraph "Local Environment"
+        Repo[Source Code] --> Ingest[Ingestion Engine]
+        Ingest --> AST[Tree-sitter Parser]
+        AST --> DB[(PostgreSQL + pgvector)]
+        
+        DB --> Retriever[Context Retriever]
+        Retriever --> Prompt[Prompt Builder]
+        Prompt --> LLM[Local/Remote LLM]
+        LLM --> UI[React Web UI]
+    end
+
+    subgraph "Data Isolation"
+        DB1[(cex_projectA_hash)]
+        DB2[(cex_projectB_hash)]
+    end
+```
+
+### Data Flow
+1. **Dynamic Routing**: Every repository is assigned a unique database (e.g., `cex_schedule_af321b`). This ensures zero crosstalk between projects.
+2. **Context Retrieval**: When you ask for an explanation, the retriever pulls the symbol's code, its **callers**, **callees**, and **file overview** into a high-context prompt.
+3. **Caching**: Recommendations and explanations are cached per-project in both the database and `data/` directory JSON files for instant subsequent access.
+
+---
 
 ## Configuration
 
@@ -72,13 +92,16 @@ batch_size = 32
 > **Note:** If you change `embed.dim`, run `cex reset` to recreate the schema  
 > with the new `VECTOR(N)` column before re-embedding.
 
-## Commands
+## Command Line Usage (Advanced)
+
+While the Web UI is recommended, you can perform all actions via CLI:
 
 | Command | Description |
 |---------|-------------|
 | `setup` | Create the database and apply the schema idempotently |
 | `reset` | Drop and recreate the database (deletes all data) |
 | `ingest <repo_dir>` | Parse a repository and populate the database |
+| `server` | Launch the FastAPI backend and serve the Web UI |
 | `embed [--force]` | Generate vector embeddings for all symbols |
 | `build [target] [--fresh]` | Pre-generate and cache LLM explanations silently |
 | `explain <target>` | Show explanation for a symbol (generates on demand if not cached) |
@@ -154,13 +177,10 @@ All primary keys are human-readable TEXT — no UUIDs.
 2. DB lookup — if cached, stream text to stdout immediately
 3. If not cached — call LLM with streaming, cache result, display
 
-## Docs
+## Documentation
 
-See the [`docs/`](docs/) directory for deep-dives into each module:
-
-- [`docs/config.md`](docs/config.md) — configuration reference
-- [`docs/schema.md`](docs/schema.md) — database schema in detail
-- [`docs/ingestion.md`](docs/ingestion.md) — parser internals and LangSpec
-- [`docs/llm.md`](docs/llm.md) — LLM client and prompt design
+- [`docs/schema.md`](docs/schema.md) — Multi-repo database schema reference
+- [`docs/ingestion.md`](docs/ingestion.md) — Tree-sitter AST extraction logic
+- [`docs/llm.md`](docs/llm.md) — Prompt engineering for code architecture
 - [`docs/search.md`](docs/search.md) — embeddings and retriever
 - [`docs/explain.md`](docs/explain.md) — explainer engine and caching

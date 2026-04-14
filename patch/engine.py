@@ -64,7 +64,17 @@ class PatchEngine:
         if self.log_cfg:
             log_prompt(messages, recommendation_id, self.log_cfg, log_name="patches.log")
 
+        print(f"Generating patch for: {recommendation_id}")
         raw_response = self.client.chat(messages, stream=False)
+        
+        # Log raw response
+        if self.log_cfg:
+            from datetime import datetime
+            log_dir = Path(self.log_cfg.log_dir) / "patches"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            with open(log_dir / f"response_{recommendation_id}_{ts}.json", "w") as f:
+                f.write(raw_response)
         
         # 4. Parse response
         try:
@@ -115,4 +125,5 @@ class PatchEngine:
             file_patches=file_patches
         )
 
+        print(f"Patch generated successfully ({len(file_patches)} files).")
         return result

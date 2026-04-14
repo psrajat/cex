@@ -7,7 +7,9 @@ from .writer import RepoMapWriter
 class SkeletonEngine:
     """Generates a ranked, explanation-enriched repository map index."""
 
-    def __init__(self, db: DatabaseManager, output_path: Path = Path("data/repo_map.md")):
+    def __init__(self, db: DatabaseManager, output_path: Path | None = None):
+        if output_path is None:
+            output_path = Path("data") / f"{db.config.name}_repo_map.md"
         self.db = db
         self.config = RepoMapConfig(final_output_path=output_path)
         

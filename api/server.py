@@ -302,12 +302,23 @@ def ingest_repo(req: IngestRequest):
         _init_engines(db_config)
         
         if req.force:
-            # Reingest
+            # 1. Cleanup old files
+            cache_file = Path("data") / f"{db_name}_recs.json"
+            map_file = Path("data") / f"{db_name}_repo_map.md"
+            if cache_file.exists(): cache_file.unlink()
+            if map_file.exists(): map_file.unlink()
+
+            # 2. Reingest Core
             IngestionEngine(req.repo_dir, db_config).run()
+            
+            # 3. Process LLM Context
             # We don't drop db inside here, _db is already connected
             EmbeddingEngine(_db, _client, cfg.embed).run(force=True)
+            
+            # EXPLAIN FIRST, THEN SKELETON (so skeleton has explanations)
+            retriever = Retriever(_db, _client)
+            ExplainEngine(_db, _client, retriever, log_cfg=cfg.logging).build_all(fresh=True)
             SkeletonEngine(_db).build(force=True)
-            ExplainEngine(_db, _client, Retriever(_db, _client), log_cfg=cfg.logging).build_all(fresh=True)
 
         return {"ok": True, "message": f"Successfully loaded project in database {db_name}"}
     except Exception as e:

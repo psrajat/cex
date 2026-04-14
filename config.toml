@@ -8,9 +8,10 @@ password = "postgres"
 # base_url must point to an OpenAI-compatible /v1 endpoint.
 [llm]
 base_url    = "http://192.168.1.2:8090/v1"
-model       = "gemma4-e4b:Q4_K_XL"
+#model       = "gemma4-e4b:Q4_K_XL"
+model       = "gemma4-26b:IQ4_NL"
 api_key     = "ollama"
-max_tokens  = 2048
+max_tokens  = 10240
 temperature = 1
 
 # Text-embedding model settings.

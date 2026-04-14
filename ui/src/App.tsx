@@ -21,6 +21,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('explorer')
   const [selectedPatch, setSelectedPatch] = useState<PatchResult | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [projectKey, setProjectKey] = useState(0)
 
   // ── Explanation state ──────────────────────────────────────────────────────
   const [explanation, setExplanation] = useState<ParsedExplanation | null>(null)
@@ -32,6 +33,7 @@ export default function App() {
     fetchFiles()
       .then((data) => {
         setFiles(data)
+        setProjectKey(prev => prev + 1)
         if (data.length === 0) setShowOnboarding(true)
         else setShowOnboarding(false)
       })

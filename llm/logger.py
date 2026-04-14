@@ -60,4 +60,7 @@ def log_prompt(messages: list[dict], symbol_id: str, cfg: LoggingConfig, log_nam
     parts.append(f"\n{divider_light}\n")
 
     with open(log_path, "a", encoding="utf-8") as fh:
-        fh.write("\n".join(parts))
+        log_entry = "\n".join(parts)
+        fh.write(log_entry)
+        # Also print to terminal for real-time observation
+        print(log_entry)
